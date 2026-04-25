@@ -1,0 +1,156 @@
+{
+  "title": "Anomaly Detection — System Overview",
+  "uid": "anomaly-overview",
+  "tags": ["anomaly-detection", "mlops"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "refresh": "10s",
+  "time": { "from": "now-30m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Anomaly Score (Reconstruction Error)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "model_anomaly_reconstruction_error",
+          "legendFormat": "Reconstruction Error"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2 }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Is Anomaly",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+      "targets": [
+        { "expr": "model_is_anomaly", "legendFormat": "Anomaly" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "NORMAL", "color": "green" }, "1": { "text": "ANOMALY", "color": "red" } } }
+          ],
+          "thresholds": { "steps": [{ "color": "green", "value": 0 }, { "color": "red", "value": 1 }] }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Severity Level",
+      "type": "gauge",
+      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+      "targets": [
+        { "expr": "model_anomaly_severity", "legendFormat": "Severity" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0, "max": 3,
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "yellow", "value": 1 },
+              { "color": "orange", "value": 2 },
+              { "color": "red", "value": 3 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "CPU %",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 8, "w": 6, "h": 6 },
+      "targets": [{ "expr": "system_cpu_percent", "legendFormat": "CPU %" }],
+      "fieldConfig": { "defaults": { "max": 100, "unit": "percent" } }
+    },
+    {
+      "id": 5,
+      "title": "Memory %",
+      "type": "timeseries",
+      "gridPos": { "x": 6, "y": 8, "w": 6, "h": 6 },
+      "targets": [{ "expr": "system_mem_percent", "legendFormat": "Memory %" }],
+      "fieldConfig": { "defaults": { "max": 100, "unit": "percent" } }
+    },
+    {
+      "id": 6,
+      "title": "Error Rate %",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 4, "w": 8, "h": 4 },
+      "targets": [{ "expr": "app_error_rate_percent", "legendFormat": "Error Rate %" }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "steps": [{ "color": "green", "value": 0 }, { "color": "red", "value": 5 }] },
+          "custom": { "thresholdsStyle": { "mode": "line" } }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Request Rate / sec",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 14, "w": 8, "h": 6 },
+      "targets": [{ "expr": "app_request_rate_per_second", "legendFormat": "Requests/sec" }]
+    },
+    {
+      "id": 8,
+      "title": "Data Drift PSI Score (per feature)",
+      "type": "timeseries",
+      "gridPos": { "x": 8, "y": 14, "w": 12, "h": 6 },
+      "targets": [
+        {
+          "expr": "data_drift_psi_score",
+          "legendFormat": "{{ feature }}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "steps": [{ "color": "green", "value": 0 }, { "color": "red", "value": 0.2 }] },
+          "custom": { "thresholdsStyle": { "mode": "dashed" } }
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "API p95 Latency (ms)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 20, "w": 12, "h": 6 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job=\"fastapi-backend\"}[5m])) * 1000",
+          "legendFormat": "p95 latency (ms)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": { "steps": [{ "color": "green", "value": 0 }, { "color": "red", "value": 200 }] }
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "Service Uptime",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 20, "w": 12, "h": 6 },
+      "targets": [
+        { "expr": "up{job=\"fastapi-backend\"}", "legendFormat": "Backend" },
+        { "expr": "up{job=\"model-server\"}", "legendFormat": "Model Server" },
+        { "expr": "up{job=\"system-metrics\"}", "legendFormat": "Metric Exporter" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{ "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }]
+        }
+      }
+    }
+  ]
+}

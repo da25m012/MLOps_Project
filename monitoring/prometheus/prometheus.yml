@@ -1,0 +1,51 @@
+# prometheus.yml — Prometheus scrape configuration
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    project: "anomaly-detection"
+    env: "production"
+
+rule_files:
+  - /etc/prometheus/alert_rules.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []   # configure Alertmanager if needed
+
+scrape_configs:
+
+  # FastAPI backend (/metrics via prometheus-fastapi-instrumentator)
+  - job_name: "fastapi-backend"
+    static_configs:
+      - targets: ["backend:8000"]
+    metrics_path: /metrics
+    scrape_interval: 10s
+
+  # Model server
+  - job_name: "model-server"
+    static_configs:
+      - targets: ["model-server:5001"]
+    metrics_path: /metrics
+    scrape_interval: 10s
+
+  # Standalone metric collector (system metrics)
+  - job_name: "system-metrics"
+    static_configs:
+      - targets: ["backend:8001"]
+    metrics_path: /metrics
+    scrape_interval: 5s
+
+  # Airflow scheduler
+  - job_name: "airflow"
+    static_configs:
+      - targets: ["airflow-webserver:8080"]
+    metrics_path: /admin/metrics
+    scrape_interval: 30s
+
+  # Prometheus self-monitoring
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]

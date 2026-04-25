@@ -1,0 +1,106 @@
+# alert_rules.yml — Prometheus alerting rules
+# Alerts fire when error rate > 5% or data drift is detected (PSI > 0.2)
+
+groups:
+
+  - name: anomaly_detection_alerts
+    interval: 30s
+    rules:
+
+      # ── Application health ──────────────────────────────────────────────
+      - alert: HighErrorRate
+        expr: app_error_rate_percent > 5
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | printf \"%.2f\" }}% (threshold: 5%)"
+
+      - alert: BackendDown
+        expr: up{job="fastapi-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "FastAPI backend is down"
+          description: "The anomaly detection backend has been unreachable for 1 minute"
+
+      - alert: ModelServerDown
+        expr: up{job="model-server"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Model server is down"
+          description: "The LSTM model server has been unreachable for 1 minute"
+
+      # ── Anomaly detection ───────────────────────────────────────────────
+      - alert: AnomalyDetected
+        expr: model_is_anomaly == 1
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Anomaly detected by LSTM model"
+          description: "Reconstruction error: {{ $value }}"
+
+      - alert: HighSeverityAnomaly
+        expr: model_anomaly_severity >= 3
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HIGH severity anomaly detected"
+          description: "Severity level {{ $value }} — immediate investigation required"
+
+      # ── Data drift ──────────────────────────────────────────────────────
+      - alert: DataDriftDetected
+        expr: data_drift_psi_score > 0.2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Data drift detected on feature {{ $labels.feature }}"
+          description: "PSI score {{ $value | printf \"%.4f\" }} exceeds threshold 0.2. Model retraining may be required."
+
+      - alert: SevereDriftDetected
+        expr: data_drift_psi_score > 0.5
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "SEVERE data drift on feature {{ $labels.feature }}"
+          description: "PSI score {{ $value | printf \"%.4f\" }} — model predictions may be unreliable"
+
+      # ── System resources ────────────────────────────────────────────────
+      - alert: HighCPU
+        expr: system_cpu_percent > 90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU utilisation"
+          description: "CPU at {{ $value }}% for over 5 minutes"
+
+      - alert: HighMemory
+        expr: system_mem_percent > 90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory utilisation"
+          description: "Memory at {{ $value }}%"
+
+      # ── Pipeline health ─────────────────────────────────────────────────
+      - alert: HighRequestLatency
+        expr: |
+          histogram_quantile(0.95,
+            rate(http_request_duration_seconds_bucket{job="fastapi-backend"}[5m])
+          ) > 0.2
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High API latency (p95 > 200ms)"
+          description: "p95 latency is {{ $value | printf \"%.3f\" }}s"
