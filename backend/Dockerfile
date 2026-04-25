@@ -1,22 +1,20 @@
-FROM python:3.11-slim
+FROM python:3.10-slim
 
 WORKDIR /app
 
-# System deps
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl build-essential && \
-    rm -rf /var/lib/apt/lists/*
-
-# Python deps
+# Install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+# Copy ML source so backend can import evaluate.py / model.py
+COPY ../ml /app/ml
+COPY app/ /app/app/
 
-# Prometheus multiprocess dir
-RUN mkdir -p /tmp/prometheus
-ENV PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus
-
+# Expose FastAPI on port 8000
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+# Initialize SQLite DB tables on startup via an entrypoint script
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+CMD ["/app/entrypoint.sh"]

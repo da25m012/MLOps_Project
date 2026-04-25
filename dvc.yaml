@@ -1,84 +1,32 @@
-# dvc.yaml — DVC Pipeline DAG
-# Defines reproducible pipeline stages.
-# Run with: dvc repro
-# Visualise with: dvc dag
-
 stages:
-
-  collect:
-    cmd: python scripts/metric_collector.py --one-shot --output data/raw/latest.parquet
-    deps:
-      - scripts/metric_collector.py
-    outs:
-      - data/raw/latest.parquet
-
-  validate:
-    cmd: python scripts/validate_data.py --input data/raw/latest.parquet
-    deps:
-      - scripts/validate_data.py
-      - data/raw/latest.parquet
-    metrics:
-      - data/processed/validation_report.json:
-          cache: false
-
   preprocess:
-    cmd: python scripts/preprocess.py
-           --input data/raw/latest.parquet
-           --output data/features/windows_latest.npz
-           --scaler-out data/processed/scaler.joblib
+    cmd: python ml/preprocess.py
     deps:
-      - scripts/preprocess.py
-      - data/raw/latest.parquet
+      - ml/preprocess.py
+      - data/raw
     outs:
-      - data/features/windows_latest.npz
+      - data/processed/windows.npy
       - data/processed/scaler.joblib
-
-  compute_baselines:
-    cmd: python scripts/compute_baselines.py
-           --input data/raw/latest.parquet
-           --output data/baselines/current_baseline.json
-    deps:
-      - scripts/compute_baselines.py
-      - data/raw/latest.parquet
-    outs:
-      - data/baselines/current_baseline.json:
-          cache: false
+      - data/processed/drift_baseline.json
 
   train:
-    cmd: python scripts/train.py
-           --features data/features/windows_latest.npz
-           --model-out models/trained/lstm_ae_latest.pt
-           --mlflow-uri ${MLFLOW_TRACKING_URI}
+    cmd: python ml/train.py
     deps:
-      - scripts/train.py
-      - data/features/windows_latest.npz
+      - ml/train.py
+      - ml/model.py
+      - ml/evaluate.py
+      - data/processed/windows.npy
+      - data/processed/scaler.joblib
     outs:
-      - models/trained/lstm_ae_latest.pt
-    metrics:
-      - models/trained/metrics.json:
-          cache: false
+      - data/processed/threshold.txt
     params:
-      - params.yaml:
-          - model.hidden_dim
-          - model.latent_dim
-          - model.num_layers
-          - model.dropout
-          - training.epochs
-          - training.learning_rate
-          - training.batch_size
+      - ml/train.py:
+          - HPARAMS
 
   evaluate:
-    cmd: python scripts/evaluate.py
-           --model models/trained/lstm_ae_latest.pt
-           --features data/features/windows_latest.npz
-           --threshold-out models/trained/threshold.json
+    cmd: python ml/evaluate.py
     deps:
-      - scripts/evaluate.py
-      - models/trained/lstm_ae_latest.pt
-      - data/features/windows_latest.npz
-    outs:
-      - models/trained/threshold.json:
-          cache: false
-    metrics:
-      - models/trained/eval_metrics.json:
-          cache: false
+      - ml/evaluate.py
+      - ml/model.py
+      - data/processed/windows.npy
+      - data/processed/threshold.txt

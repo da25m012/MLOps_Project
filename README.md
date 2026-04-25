@@ -1,140 +1,161 @@
 # Multivariate Log Anomaly Detection System
 
-Real-time anomaly detection for system metrics using an LSTM Autoencoder, built end-to-end with MLOps best practices.
+An end-to-end MLOps project that detects infrastructure anomalies using an LSTM Autoencoder trained on Prometheus system metrics.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│  Data Ingestion (Airflow)                               │
-│  collect → validate → baselines → preprocess → DVC      │
-└───────────────────────┬─────────────────────────────────┘
-                        │ triggers (on drift / first run)
-┌───────────────────────▼─────────────────────────────────┐
-│  Model Training (Airflow + MLflow)                      │
-│  load_features → train_lstm → evaluate → register        │
-└───────────────────────┬─────────────────────────────────┘
-                        │
-┌───────────────────────▼─────────────────────────────────┐
-│  Serving (Docker Compose — 3 containers)                │
-│  React frontend ↔ FastAPI backend ↔ MLflow model server  │
-└───────────────────────┬─────────────────────────────────┘
-                        │
-┌───────────────────────▼─────────────────────────────────┐
-│  Monitoring (Prometheus + Grafana)                      │
-│  Alerts: error rate > 5%, drift PSI > 0.2              │
-└─────────────────────────────────────────────────────────┘
+Prometheus → Airflow DAG → SQLite/CSV → DVC → LSTM Autoencoder (MLflow)
+                                                       ↓
+                                               FastAPI (/predict)
+                                                       ↓
+                                               Flask Dashboard
+                                                       ↓
+                                         Prometheus + Grafana (monitoring)
 ```
+
+## Tech Stack
+
+| Layer            | Tool                          |
+|------------------|-------------------------------|
+| Data ingestion   | Apache Airflow                |
+| Versioning       | Git + DVC                     |
+| ML framework     | PyTorch (LSTM Autoencoder)    |
+| Experiment track | MLflow                        |
+| Model serving    | FastAPI + Uvicorn             |
+| Frontend         | Flask                         |
+| Monitoring       | Prometheus + Grafana          |
+| Containerisation | Docker + Docker Compose       |
+
+## Prerequisites
+
+- Docker and Docker Compose installed
+- Python 3.10+ (for running training locally)
+- Git and DVC (`pip install dvc`)
 
 ## Quick Start
 
-### Prerequisites
-- Docker & Docker Compose
-- Git + DVC (`pip install dvc`)
-
 ### 1. Clone and initialise
+
 ```bash
-git clone <repo-url> && cd anomaly-detection
+git clone <your-repo-url>
+cd anomaly-detection
+git init
 dvc init
-cp .env.example .env
 ```
 
-### 2. Start all services
+### 2. Start core services
+
 ```bash
 docker compose up -d
 ```
 
-### 3. Access the UIs
+This starts:
+- Flask frontend   → http://localhost:5000
+- FastAPI backend  → http://localhost:8000
+- MLflow UI        → http://localhost:5001
+- Prometheus       → http://localhost:9090
+- Grafana          → http://localhost:3000  (admin / admin)
 
-| Service | URL |
-|---|---|
-| React Dashboard | http://localhost:3000 |
-| FastAPI docs | http://localhost:8000/docs |
-| Airflow | http://localhost:8080 (admin/admin) |
-| MLflow | http://localhost:5000 |
-| Grafana | http://localhost:3001 (admin/admin) |
-| Prometheus | http://localhost:9090 |
+### 3. Start Airflow (separate compose)
 
-### 4. Run the DVC pipeline (standalone, without Airflow)
 ```bash
-dvc repro
+cd airflow
+docker compose -f docker-compose.airflow.yml up -d
 ```
 
-### 5. Run tests
+Airflow UI → http://localhost:8080  
+The `ingest_prometheus_metrics` DAG runs every 5 minutes automatically.
+
+### 4. Train the model
+
+Wait for at least a few hours of data collection (or seed with synthetic data), then:
+
 ```bash
-cd backend && pytest tests/ -v --tb=short
+# Run preprocessing + training via DVC
+dvc repro
+
+# Or run training directly
+cd ml
+pip install -r ../backend/requirements.txt
+python train.py
+```
+
+Training logs metrics to MLflow. After training completes, the model is registered and the backend will load it automatically on next restart.
+
+### 5. Verify everything works
+
+```bash
+# Backend health check
+curl http://localhost:8000/health
+
+# Run a test prediction (60 rows × 4 features)
+curl -X POST http://localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{"window": [[45.0, 60.0, 120.0, 0.02]] }'
+
+# Check Prometheus metrics
+curl http://localhost:8000/metrics
+```
+
+### 6. Run unit tests
+
+```bash
+cd backend
+pip install -r requirements.txt
+pytest tests/ -v
+```
+
+## DVC Workflow
+
+```bash
+# Track new raw data files
+dvc add data/raw/
+
+# Run the full pipeline
+dvc repro
+
+# Show pipeline DAG
+dvc dag
+
+# Push data to remote (configure remote first)
+dvc push
 ```
 
 ## Project Structure
 
 ```
 anomaly-detection/
-├── airflow/
-│   ├── dags/
-│   │   ├── metric_ingestion_pipeline.py   # main ingestion DAG
-│   │   └── model_training_pipeline.py     # triggered training DAG
-│   └── requirements.txt
-├── backend/
-│   ├── app/
-│   │   ├── api/          # FastAPI route handlers
-│   │   ├── core/         # config, logging
-│   │   ├── models/       # Pydantic schemas, LSTM model class
-│   │   ├── services/     # model client, drift service
-│   │   └── main.py
-│   ├── tests/
-│   ├── Dockerfile
-│   └── requirements.txt
-├── frontend/
-│   └── src/
-│       ├── components/   # Chart, AnomalyBadge, PipelineView, etc.
-│       ├── pages/        # Dashboard, Pipeline, Settings
-│       └── services/     # API client
-├── monitoring/
-│   ├── prometheus/       # prometheus.yml, alert_rules.yml
-│   └── grafana/          # dashboards, provisioning
-├── scripts/
-│   └── metric_collector.py
-├── data/                 # DVC-tracked (not in Git)
-├── models/               # DVC-tracked (not in Git)
-├── dvc.yaml              # DVC pipeline DAG
-├── params.yaml           # All hyperparameters
-└── docker-compose.yml
+├── airflow/          # Airflow DAGs and config
+├── backend/          # FastAPI inference engine
+│   ├── app/          # main.py, model.py, schemas.py, metrics.py
+│   └── tests/        # unit tests
+├── frontend/         # Flask UI (dashboard, pipeline, manual)
+├── ml/               # LSTM model, training, preprocessing
+├── monitoring/       # Prometheus + Grafana config
+├── data/             # DVC-tracked (gitignored)
+├── docs/             # HLD, LLD, architecture, test plan, user manual
+├── docker-compose.yml
+└── dvc.yaml
 ```
 
-## Technology Stack
+## API Endpoints
 
-| Layer | Tool |
-|---|---|
-| Data ingestion | Apache Airflow 2.8 |
-| Data versioning | DVC + Git LFS |
-| Experiment tracking | MLflow 2.11 |
-| Model | LSTM Autoencoder (PyTorch 2.2) |
-| Model serving | MLflow model server |
-| API | FastAPI + Uvicorn |
-| Frontend | React 18 |
-| Monitoring | Prometheus + Grafana |
-| Containerisation | Docker Compose |
-| CI/CD | GitHub Actions + DVC |
+| Method | Endpoint           | Description                        |
+|--------|--------------------|------------------------------------|
+| POST   | /predict           | Run anomaly detection on a window  |
+| GET    | /health            | Model load status                  |
+| GET    | /ready             | Orchestration readiness probe      |
+| POST   | /drift             | Data drift detection               |
+| GET    | /pipeline/status   | Pipeline stats for UI              |
+| GET    | /metrics           | Prometheus scrape endpoint         |
 
-## MLOps Pipeline (DVC DAG)
+## Anomaly Severity
 
-```
-collect → validate → preprocess ─┐
-                 └→ compute_baselines
-                                  └→ train → evaluate
-```
+| Severity | Condition                                  |
+|----------|--------------------------------------------|
+| normal   | Reconstruction error ≤ threshold           |
+| low      | threshold < error ≤ 2 × threshold          |
+| high     | error > 2 × threshold                      |
 
-View with: `dvc dag`
-
-## Key Configuration
-
-All tunable parameters live in `params.yaml` and are tracked by DVC and logged to MLflow on every run.
-
-## Anomaly Severity Levels
-
-| Level | Condition |
-|---|---|
-| Normal | recon_error ≤ threshold |
-| Low | threshold < error ≤ threshold × 1.5 |
-| Medium | threshold × 1.5 < error ≤ threshold × 2.5 |
-| High | error > threshold × 2.5 |
+Threshold is set at the 95th percentile of reconstruction errors on training data.

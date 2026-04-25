@@ -1,0 +1,97 @@
+{
+  "id": null,
+  "uid": "anomaly",
+  "title": "Anomaly Detection",
+  "tags": ["mlops", "anomaly"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Total Inference Requests",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "targets": [{
+        "expr": "inference_requests_total",
+        "legendFormat": "requests"
+      }],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Inference Latency (p95)",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "targets": [{
+        "expr": "histogram_quantile(0.95, rate(inference_latency_seconds_bucket[5m]))",
+        "legendFormat": "p95 latency"
+      }],
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Anomalies (HIGH) — Total",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "targets": [{
+        "expr": "anomaly_detections_total{severity=\"high\"}",
+        "legendFormat": "high anomalies"
+      }]
+    },
+    {
+      "id": 4,
+      "type": "gauge",
+      "title": "Latest Reconstruction Error",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "targets": [{
+        "expr": "model_reconstruction_error",
+        "legendFormat": "score"
+      }],
+      "fieldConfig": {"defaults": {"min": 0, "max": 1}}
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Inference Latency over Time",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "targets": [
+        {
+          "expr": "rate(inference_latency_seconds_sum[5m]) / rate(inference_latency_seconds_count[5m])",
+          "legendFormat": "avg latency"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(inference_latency_seconds_bucket[5m]))",
+          "legendFormat": "p95 latency"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Anomaly Detections by Severity",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "targets": [
+        {
+          "expr": "rate(anomaly_detections_total{severity=\"high\"}[5m])",
+          "legendFormat": "high/min"
+        },
+        {
+          "expr": "rate(anomaly_detections_total{severity=\"low\"}[5m])",
+          "legendFormat": "low/min"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Reconstruction Error over Time",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 12},
+      "targets": [{
+        "expr": "model_reconstruction_error",
+        "legendFormat": "reconstruction error"
+      }]
+    }
+  ]
+}

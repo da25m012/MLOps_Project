@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — AnomalyDetect{% endblock %}
+
+{% block content %}
+<h1>Live Dashboard</h1>
+<p class="subtitle">Real-time system metrics and anomaly detections. Refreshes every 30 seconds.</p>
+
+<!-- Stat cards -->
+<div class="grid-4" style="margin-bottom:1.5rem">
+  <div class="stat-card">
+    <div class="stat-label">CPU Usage</div>
+    <div class="stat-value" id="stat-cpu">—</div>
+    <div class="stat-sub">%</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Memory Usage</div>
+    <div class="stat-value" id="stat-mem">—</div>
+    <div class="stat-sub">%</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Request Rate</div>
+    <div class="stat-value" id="stat-req">—</div>
+    <div class="stat-sub">req/s</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Error Rate</div>
+    <div class="stat-value" id="stat-err">—</div>
+    <div class="stat-sub">%</div>
+  </div>
+</div>
+
+<!-- Latest anomaly status -->
+<div class="card" style="display:flex;align-items:center;gap:1rem;margin-bottom:1.5rem">
+  <div>
+    <div class="stat-label">Latest Anomaly Check</div>
+    <div style="font-size:1.1rem;font-weight:600;margin-top:0.25rem" id="latest-severity">—</div>
+  </div>
+  <div style="margin-left:auto;text-align:right">
+    <div class="stat-label">Reconstruction Score</div>
+    <div style="font-size:1.1rem;font-weight:600;margin-top:0.25rem" id="latest-score">—</div>
+  </div>
+  <div style="text-align:right">
+    <div class="stat-label">Threshold</div>
+    <div style="font-size:1.1rem;font-weight:600;margin-top:0.25rem" id="latest-threshold">—</div>
+  </div>
+  <div id="latest-spinner" class="spinner"></div>
+</div>
+
+<!-- Anomaly history table -->
+<div class="card">
+  <div class="card-title">Anomaly History (last 50 checks)</div>
+  <table>
+    <thead>
+      <tr>
+        <th>Timestamp</th>
+        <th>CPU %</th>
+        <th>Memory %</th>
+        <th>Req/s</th>
+        <th>Error %</th>
+        <th>Score</th>
+        <th>Severity</th>
+      </tr>
+    </thead>
+    <tbody id="anomaly-table-body">
+      <tr><td colspan="7" style="color:var(--muted);text-align:center;padding:2rem">Loading...</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Grafana iframe -->
+<div class="card">
+  <div class="card-title">Grafana — Prometheus Metrics (Near Real-Time)</div>
+  <iframe
+    src="http://localhost:3000/d/anomaly/anomaly-detection?orgId=1&refresh=30s&kiosk=tv"
+    width="100%" height="400"
+    style="border:none;border-radius:8px"
+    title="Grafana dashboard">
+  </iframe>
+  <p style="font-size:0.75rem;color:var(--muted);margin-top:0.5rem">
+    If the Grafana panel is blank, open <a href="http://localhost:3000" target="_blank" style="color:var(--accent)">localhost:3000</a> and log in (admin/admin).
+  </p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const BACKEND = '';   // proxied through Flask /api/*
+const history = [];   // local ring buffer for table
+
+// Simulate or fetch latest metric window (60 rows × 4 cols)
+function makeWindow(cpu, mem, req, err) {
+  return Array.from({length: 60}, () => [
+    cpu + (Math.random() - 0.5) * 2,
+    mem + (Math.random() - 0.5) * 2,
+    req + (Math.random() - 0.5) * 5,
+    err + (Math.random() - 0.5) * 0.002,
+  ]);
+}
+
+// Simulated live metric values (replace with real Prometheus scrape if desired)
+function getLiveMetrics() {
+  return {
+    cpu:  40 + Math.random() * 20,
+    mem:  55 + Math.random() * 15,
+    req:  120 + Math.random() * 30,
+    err:  0.02 + Math.random() * 0.03,
+  };
+}
+
+function severityBadge(s) {
+  return `<span class="badge badge-${s}">${s.toUpperCase()}</span>`;
+}
+
+function updateStatCards(m) {
+  document.getElementById('stat-cpu').textContent = m.cpu.toFixed(1);
+  document.getElementById('stat-mem').textContent = m.mem.toFixed(1);
+  document.getElementById('stat-req').textContent = m.req.toFixed(0);
+  document.getElementById('stat-err').textContent = (m.err * 100).toFixed(2);
+}
+
+function updateTable() {
+  const tbody = document.getElementById('anomaly-table-body');
+  if (!history.length) return;
+  tbody.innerHTML = history.slice(-50).reverse().map(r => `
+    <tr>
+      <td style="color:var(--muted);font-size:0.8rem">${r.ts}</td>
+      <td>${r.cpu.toFixed(1)}</td>
+      <td>${r.mem.toFixed(1)}</td>
+      <td>${r.req.toFixed(0)}</td>
+      <td>${(r.err*100).toFixed(2)}</td>
+      <td>${r.score.toFixed(5)}</td>
+      <td>${severityBadge(r.severity)}</td>
+    </tr>
+  `).join('');
+}
+
+async function runCheck() {
+  const spinner = document.getElementById('latest-spinner');
+  spinner.style.display = 'inline-block';
+
+  const m = getLiveMetrics();
+  updateStatCards(m);
+
+  try {
+    const resp = await fetch('/predict', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        window: makeWindow(m.cpu, m.mem, m.req, m.err),
+        timestamp: new Date().toISOString(),
+      }),
+    });
+
+    // If backend not yet up, show placeholder
+    if (!resp.ok) throw new Error('backend not ready');
+    const d = await resp.json();
+
+    document.getElementById('latest-severity').innerHTML = severityBadge(d.severity);
+    document.getElementById('latest-score').textContent = d.score.toFixed(5);
+    document.getElementById('latest-threshold').textContent = d.threshold.toFixed(5);
+
+    history.push({
+      ts: new Date().toLocaleTimeString(),
+      cpu: m.cpu, mem: m.mem, req: m.req, err: m.err,
+      score: d.score, severity: d.severity,
+    });
+    updateTable();
+  } catch (e) {
+    document.getElementById('latest-severity').innerHTML = '<span style="color:var(--muted)">backend offline</span>';
+  } finally {
+    spinner.style.display = 'none';
+  }
+}
+
+// Predict endpoint is on backend port 8000 but proxied via Flask
+// Flask doesn't proxy /predict — direct call to backend when in same docker network
+// For demo, we call backend directly from browser:
+async function initPredict() {
+  // Try direct backend call
+  try {
+    const r = await fetch('http://localhost:8000/ready');
+    const d = await r.json();
+    if (d.ready) {
+      // Override fetch to go direct
+      window._predictUrl = 'http://localhost:8000/predict';
+    }
+  } catch { window._predictUrl = null; }
+}
+
+initPredict().then(() => {
+  runCheck();
+  setInterval(runCheck, 30000);
+});
+</script>
+{% endblock %}

@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}ML Pipeline — AnomalyDetect{% endblock %}
+
+{% block content %}
+<h1>ML Pipeline</h1>
+<p class="subtitle">Live view of the end-to-end MLOps pipeline — ingestion → training → deployment.</p>
+
+<!-- Pipeline status cards -->
+{% if status %}
+<div class="grid-4" style="margin-bottom:1.5rem">
+  <div class="stat-card">
+    <div class="stat-label">Rows Ingested</div>
+    <div class="stat-value">{{ status.total_rows_ingested or '—' }}</div>
+    <div class="stat-sub">total metrics stored</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Last Ingestion</div>
+    <div class="stat-value" style="font-size:1rem">{{ (status.last_ingestion or '—')[:19] }}</div>
+    <div class="stat-sub">UTC</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Model Version</div>
+    <div class="stat-value" style="font-size:1.2rem">{{ status.model_version or '—' }}</div>
+    <div class="stat-sub">MLflow run ID (short)</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Anomaly Rate (24h)</div>
+    <div class="stat-value">
+      {% if status.anomaly_rate_24h is not none %}
+        {{ "%.1f"|format(status.anomaly_rate_24h * 100) }}%
+      {% else %}—{% endif %}
+    </div>
+    <div class="stat-sub">of inference windows</div>
+  </div>
+</div>
+{% elif error %}
+<div class="card" style="border-color:var(--red);color:var(--red)">
+  Backend unavailable: {{ error }}
+</div>
+{% endif %}
+
+<!-- Pipeline diagram -->
+<div class="card">
+  <div class="card-title">Pipeline Stages</div>
+  <div style="display:flex;flex-direction:column;gap:0;align-items:stretch">
+    {% set stages = [
+      ("1", "Data Ingestion", "Airflow DAG scrapes Prometheus every 5 min → stores to SQLite + daily CSV", "green"),
+      ("2", "Versioning",     "DVC tracks raw CSVs and processed windows. Git tracks code and configs.",    "accent"),
+      ("3", "Preprocessing",  "MinMaxScaler normalisation → sliding windows (60×4). Drift baseline saved.", "accent"),
+      ("4", "Training",       "LSTM Autoencoder trains on normal windows. MLflow logs all params & metrics.","accent"),
+      ("5", "Registration",   "Best model registered in MLflow model registry.",                            "accent"),
+      ("6", "Serving",        "FastAPI loads registered model. Exposes /predict, /health, /metrics.",       "accent"),
+      ("7", "Monitoring",     "Prometheus scrapes /metrics every 15s. Grafana renders dashboards in NRT.",  "amber"),
+    ] %}
+    {% for num, title, desc, color in stages %}
+    <div style="display:flex;align-items:flex-start;gap:1rem;padding:1rem 0;border-bottom:1px solid var(--border){% if loop.last %};border-bottom:none{% endif %}">
+      <div style="min-width:32px;height:32px;border-radius:50%;background:var(--{{ color }});display:flex;align-items:center;justify-content:center;font-size:0.8rem;font-weight:700;color:#fff;margin-top:0.1rem">{{ num }}</div>
+      <div>
+        <div style="font-weight:600;font-size:0.95rem;margin-bottom:0.25rem">{{ title }}</div>
+        <div style="font-size:0.85rem;color:var(--muted)">{{ desc }}</div>
+      </div>
+      <div style="margin-left:auto">
+        <span class="badge badge-ok">active</span>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- MLflow link -->
+<div class="card">
+  <div class="card-title">Experiment Tracking — MLflow</div>
+  <p style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem">
+    All training runs, hyperparameters, metrics, and model versions are tracked in MLflow.
+  </p>
+  <a href="http://localhost:5001" target="_blank"
+     style="display:inline-block;background:var(--accent);color:#fff;padding:0.5rem 1.25rem;border-radius:8px;text-decoration:none;font-size:0.875rem;font-weight:600">
+    Open MLflow UI →
+  </a>
+  <a href="http://localhost:8080" target="_blank"
+     style="display:inline-block;margin-left:0.75rem;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:0.5rem 1.25rem;border-radius:8px;text-decoration:none;font-size:0.875rem;font-weight:600">
+    Open Airflow UI →
+  </a>
+</div>
+
+<!-- DVC pipeline console -->
+<div class="card">
+  <div class="card-title">DVC Pipeline DAG</div>
+  <pre style="background:#0a0d16;border-radius:8px;padding:1rem;font-size:0.8rem;color:#a3e6cb;overflow-x:auto">
++-------------------+
+| data/raw/*.csv    |   ← Airflow ingestion (DVC tracked)
++-------------------+
+          │
+          ▼
++-------------------+
+| preprocess        |   preprocess.py → data/processed/
++-------------------+
+          │
+          ▼
++-------------------+
+| train             |   train.py → MLflow model registry
++-------------------+
+          │
+          ▼
++-------------------+
+| evaluate          |   evaluate.py → threshold.txt
++-------------------+</pre>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Auto-refresh pipeline status every 60 seconds
+async function refreshStatus() {
+  const r = await fetch('/api/pipeline-status').catch(() => null);
+  if (!r || !r.ok) return;
+  const d = await r.json();
+  if (d.total_rows_ingested !== undefined) {
+    document.querySelectorAll('.stat-value')[0].textContent = d.total_rows_ingested;
+  }
+}
+setInterval(refreshStatus, 60000);
+</script>
+{% endblock %}

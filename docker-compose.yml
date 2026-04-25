@@ -1,215 +1,96 @@
 version: "3.9"
 
-# ─────────────────────────────────────────────
-#  Multivariate Log Anomaly Detection System
-#  Docker Compose — all services
-# ─────────────────────────────────────────────
-
-x-airflow-common: &airflow-common
-  image: apache/airflow:2.8.1-python3.11
-  environment: &airflow-env
-    AIRFLOW__CORE__EXECUTOR: LocalExecutor
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
-    AIRFLOW__CORE__FERNET_KEY: ""
-    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
-    AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
-    MLFLOW_TRACKING_URI: http://mlflow-server:5000
-    DATA_RAW_PATH: /opt/airflow/data/raw
-    DATA_PROCESSED_PATH: /opt/airflow/data/processed
-  volumes:
-    - ./airflow/dags:/opt/airflow/dags
-    - ./airflow/logs:/opt/airflow/logs
-    - ./airflow/plugins:/opt/airflow/plugins
-    - ./data:/opt/airflow/data
-    - ./scripts:/opt/airflow/scripts
-  depends_on:
-    postgres:
-      condition: service_healthy
-  networks:
-    - anomaly-net
-
 services:
 
-  # ── Infrastructure ───────────────────────────
-  postgres:
-    image: postgres:15
-    environment:
-      POSTGRES_USER: airflow
-      POSTGRES_PASSWORD: airflow
-      POSTGRES_DB: airflow
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD", "pg_isready", "-U", "airflow"]
-      interval: 10s
-      retries: 5
-    networks:
-      - anomaly-net
-
-  # ── Airflow ──────────────────────────────────
-  airflow-init:
-    <<: *airflow-common
-    entrypoint: /bin/bash
-    command:
-      - -c
-      - |
-        airflow db init &&
-        airflow users create \
-          --username admin --password admin \
-          --firstname Admin --lastname User \
-          --role Admin --email admin@example.com
-    restart: "no"
-
-  airflow-webserver:
-    <<: *airflow-common
-    command: webserver
-    ports:
-      - "8080:8080"
-    healthcheck:
-      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-    restart: unless-stopped
-
-  airflow-scheduler:
-    <<: *airflow-common
-    command: scheduler
-    healthcheck:
-      test: ["CMD-SHELL", 'airflow jobs check --job-type SchedulerJob --hostname "$${HOSTNAME}"']
-      interval: 30s
-      timeout: 10s
-      retries: 5
-    restart: unless-stopped
-
-  # ── MLflow ───────────────────────────────────
-  mlflow-server:
-    image: python:3.11-slim
-    working_dir: /mlflow
-    command: >
-      bash -c "pip install mlflow psycopg2-binary boto3 --quiet &&
-               mlflow server
-               --host 0.0.0.0
-               --port 5000
-               --backend-store-uri /mlflow/mlruns
-               --default-artifact-root /mlflow/artifacts"
+  # ── Frontend (Flask) ────────────────────────────────────────────────────────
+  frontend:
+    build: ./frontend
     ports:
       - "5000:5000"
-    volumes:
-      - ./mlflow/mlruns:/mlflow/mlruns
-      - ./mlflow/artifacts:/mlflow/artifacts
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
-      interval: 30s
-      retries: 5
-    networks:
-      - anomaly-net
-
-  # ── Model server (MLflow serve) ───────────────
-  model-server:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.model
-    ports:
-      - "5001:5001"
     environment:
-      MLFLOW_TRACKING_URI: http://mlflow-server:5000
-      MODEL_NAME: lstm-autoencoder
-      MODEL_STAGE: Production
-    volumes:
-      - ./mlflow/mlruns:/mlflow/mlruns
-      - ./mlflow/artifacts:/mlflow/artifacts
-      - ./models:/models
+      BACKEND_URL: http://backend:8000
     depends_on:
-      mlflow-server:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
-      interval: 30s
-      retries: 5
-    networks:
-      - anomaly-net
+      - backend
+    restart: unless-stopped
 
-  # ── FastAPI backend ───────────────────────────
+  # ── Backend (FastAPI + LSTM model) ──────────────────────────────────────────
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    build: ./backend
     ports:
       - "8000:8000"
     environment:
-      MLFLOW_TRACKING_URI: http://mlflow-server:5000
-      MODEL_SERVER_URL: http://model-server:5001
-      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus
-      LOG_LEVEL: INFO
-      DATA_PATH: /app/data
+      MLFLOW_TRACKING_URI: http://mlflow:5001
+      REGISTERED_MODEL_NAME: lstm_autoencoder
+      DB_PATH: /app/data/metrics.db
+      PROCESSED_DIR: /app/data/processed
     volumes:
       - ./data:/app/data
-      - ./models:/app/models
+      - ./ml:/app/ml
     depends_on:
-      model-server:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      retries: 5
-    networks:
-      - anomaly-net
+      - mlflow
+    restart: unless-stopped
 
-  # ── React frontend ────────────────────────────
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
+  # ── MLflow tracking server ───────────────────────────────────────────────────
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.12.1
     ports:
-      - "3000:80"
-    environment:
-      REACT_APP_API_URL: http://localhost:8000
-    depends_on:
-      - backend
-    networks:
-      - anomaly-net
+      - "5001:5001"
+    command: >
+      mlflow server
+        --host 0.0.0.0
+        --port 5001
+        --backend-store-uri sqlite:///mlflow.db
+        --default-artifact-root /mlflow/artifacts
+    volumes:
+      - mlflow_data:/mlflow
+    restart: unless-stopped
 
-  # ── Prometheus ────────────────────────────────
+  # ── Prometheus ───────────────────────────────────────────────────────────────
   prometheus:
-    image: prom/prometheus:v2.49.0
+    image: prom/prometheus:v2.51.2
     ports:
       - "9090:9090"
     volumes:
-      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./monitoring/prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
-      - prometheus-data:/prometheus
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
     command:
-      - "--config.file=/etc/prometheus/prometheus.yml"
-      - "--storage.tsdb.path=/prometheus"
-      - "--web.enable-lifecycle"
-    networks:
-      - anomaly-net
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    restart: unless-stopped
 
-  # ── Grafana ───────────────────────────────────
-  grafana:
-    image: grafana/grafana:10.3.0
+  # ── Node Exporter (host CPU / memory metrics for Prometheus) ─────────────────
+  node-exporter:
+    image: prom/node-exporter:v1.8.0
     ports:
-      - "3001:3000"
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+    restart: unless-stopped
+
+  # ── Grafana ──────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.2
+    ports:
+      - "3000:3000"
     environment:
       GF_SECURITY_ADMIN_PASSWORD: admin
-      GF_SECURITY_ADMIN_USER: admin
-      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboard.json:/var/lib/grafana/dashboards/anomaly.json:ro
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
-      - grafana-data:/var/lib/grafana
     depends_on:
       - prometheus
-    networks:
-      - anomaly-net
+    restart: unless-stopped
 
 volumes:
-  postgres-data:
-  prometheus-data:
-  grafana-data:
-
-networks:
-  anomaly-net:
-    driver: bridge
+  mlflow_data:
+  prometheus_data:
+  grafana_data:

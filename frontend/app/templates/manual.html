@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}User Manual — AnomalyDetect{% endblock %}
+
+{% block content %}
+<h1>User Manual</h1>
+<p class="subtitle">How to use the Anomaly Detection System — no technical knowledge required.</p>
+
+{% set sections = [
+  {
+    "title": "What does this system do?",
+    "content": "This system watches your server's health 24/7. It monitors four key metrics — CPU usage, memory usage, request rate, and error rate — and automatically alerts you when something unusual happens. Think of it as a security guard for your infrastructure."
+  },
+  {
+    "title": "Understanding the Dashboard",
+    "content": "The Dashboard page shows live metrics at the top (four number cards) and a history table below. Each row in the table represents one check performed every 5 minutes. The 'Severity' column tells you if anything was wrong."
+  },
+  {
+    "title": "What do the severity labels mean?",
+    "content": "NORMAL — everything is fine, the system is behaving as expected. LOW — a minor anomaly was detected; keep an eye on it but no immediate action needed. HIGH — a significant anomaly was detected; investigate your servers immediately."
+  },
+  {
+    "title": "What is the Reconstruction Score?",
+    "content": "The score is a number produced by the AI model. A low score (close to 0) means the system is behaving normally. A high score means the system detected unusual patterns. The Threshold shown next to it is the cut-off — scores above it trigger an alert."
+  },
+  {
+    "title": "Understanding the ML Pipeline page",
+    "content": "The Pipeline page shows the health of the background data collection and AI training process. You can see how many data points have been collected, when data was last ingested, and which version of the AI model is currently running."
+  },
+  {
+    "title": "What should I do when I see a HIGH anomaly?",
+    "content": "1. Note the timestamp of the anomaly. 2. Check your server logs around that time. 3. Look at which metric (CPU, memory, etc.) is unusually high. 4. Contact your engineering team with this information. 5. Continue monitoring — if multiple HIGH alerts appear in a row, escalate immediately."
+  },
+  {
+    "title": "How often does the system check?",
+    "content": "The system collects data every 5 minutes automatically. The dashboard refreshes every 30 seconds. You do not need to do anything — the system runs in the background continuously."
+  },
+  {
+    "title": "Grafana monitoring panel",
+    "content": "The bottom of the Dashboard page shows a Grafana panel with real-time charts. If the panel appears blank, click the 'Open localhost:3000' link and log in with username admin and password admin. The charts show the same metrics in graph form over time."
+  },
+] %}
+
+{% for s in sections %}
+<div class="card">
+  <div class="card-title">{{ loop.index }}. {{ s.title }}</div>
+  <p style="font-size:0.9rem;line-height:1.75;color:var(--text)">{{ s.content }}</p>
+</div>
+{% endfor %}
+
+<div class="card" style="border-color:var(--accent)">
+  <div class="card-title">Quick reference — severity colours</div>
+  <div style="display:flex;gap:1rem;flex-wrap:wrap">
+    <span class="badge badge-normal">NORMAL — system healthy</span>
+    <span class="badge badge-low">LOW — minor anomaly, monitor</span>
+    <span class="badge badge-high">HIGH — significant anomaly, act now</span>
+  </div>
+</div>
+{% endblock %}

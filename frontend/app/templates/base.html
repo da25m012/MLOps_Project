@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>{% block title %}Anomaly Detection{% endblock %}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:      #0f1117;
+      --surface: #1a1d2e;
+      --border:  #2a2d3e;
+      --text:    #e2e8f0;
+      --muted:   #94a3b8;
+      --accent:  #6366f1;
+      --green:   #22c55e;
+      --red:     #ef4444;
+      --amber:   #f59e0b;
+    }
+    body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; min-height: 100vh; }
+
+    nav {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 2rem;
+      display: flex;
+      align-items: center;
+      gap: 2rem;
+      height: 56px;
+    }
+    nav .brand { font-weight: 700; font-size: 1rem; color: var(--accent); letter-spacing: 0.02em; }
+    nav a {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 0.875rem;
+      padding: 0.25rem 0;
+      border-bottom: 2px solid transparent;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    nav a:hover, nav a.active { color: var(--text); border-bottom-color: var(--accent); }
+    nav .status-dot {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+    .dot.red { background: var(--red); }
+
+    main { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+    h1 { font-size: 1.5rem; font-weight: 600; margin-bottom: 0.25rem; }
+    .subtitle { color: var(--muted); font-size: 0.875rem; margin-bottom: 2rem; }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .card-title {
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 1rem;
+    }
+    .badge {
+      display: inline-block;
+      padding: 0.2rem 0.6rem;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .badge-normal  { background: #14532d; color: #86efac; }
+    .badge-low     { background: #78350f; color: #fcd34d; }
+    .badge-high    { background: #7f1d1d; color: #fca5a5; }
+    .badge-ok      { background: #14532d; color: #86efac; }
+    .badge-degraded{ background: #7f1d1d; color: #fca5a5; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+    th { color: var(--muted); font-weight: 600; text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    td { padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--border); }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,0.02); }
+
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; }
+    @media (max-width: 768px) { .grid-2, .grid-4 { grid-template-columns: 1fr; } }
+
+    .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; }
+    .stat-label { font-size: 0.75rem; color: var(--muted); margin-bottom: 0.25rem; }
+    .stat-value { font-size: 1.75rem; font-weight: 700; }
+    .stat-sub   { font-size: 0.75rem; color: var(--muted); margin-top: 0.25rem; }
+
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <nav>
+    <span class="brand">⬡ AnomalyDetect</span>
+    <a href="/dashboard" class="{{ 'active' if request.endpoint == 'main.dashboard' else '' }}">Dashboard</a>
+    <a href="/pipeline"  class="{{ 'active' if request.endpoint == 'main.pipeline'  else '' }}">ML Pipeline</a>
+    <a href="/manual"    class="{{ 'active' if request.endpoint == 'main.manual'    else '' }}">User Manual</a>
+    <div class="status-dot">
+      <span class="dot" id="nav-dot"></span>
+      <span id="nav-status">checking...</span>
+    </div>
+  </nav>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+  <script>
+    async function checkHealth() {
+      try {
+        const r = await fetch('/api/health');
+        const d = await r.json();
+        const ok = d.status === 'ok';
+        document.getElementById('nav-dot').className = 'dot' + (ok ? '' : ' red');
+        document.getElementById('nav-status').textContent = ok ? 'backend ok' : 'backend degraded';
+      } catch {
+        document.getElementById('nav-dot').className = 'dot red';
+        document.getElementById('nav-status').textContent = 'backend offline';
+      }
+    }
+    checkHealth();
+    setInterval(checkHealth, 30000);
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>
