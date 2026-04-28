@@ -6,6 +6,7 @@ Tracks all experiments with MLflow.
 import argparse
 import logging
 import os
+import yaml
 
 import mlflow
 import mlflow.pytorch
@@ -16,22 +17,16 @@ from torch.utils.data import DataLoader, TensorDataset, random_split
 
 from model import LSTMAutoencoder
 from preprocess import preprocess, INPUT_SIZE
+from evaluate import evaluate_dataset
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-HPARAMS = {
-    "input_size": INPUT_SIZE,  # 14 sensors
-    "hidden_size": 64,
-    "num_layers": 2,
-    "seq_len": 30,             # 30 cycles per window
-    "dropout": 0.2,
-    "lr": 1e-3,
-    "epochs": 50,
-    "batch_size": 32,
-    "val_split": 0.1,
-    "threshold_percentile": 95,
-}
+
+_PARAMS_FILE = os.path.join(os.path.dirname(__file__), "..", "params.yaml")
+with open(_PARAMS_FILE) as f:
+    PARAMS = yaml.safe_load(f)["train"]
+PARAMS["input_size"] = INPUT_SIZE
 
 PROCESSED_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "processed")
 MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "http://localhost:5001")
@@ -41,47 +36,47 @@ REGISTERED_MODEL_NAME = "lstm_autoencoder"
 
 def train(hparams=None):
     if hparams:
-        HPARAMS.update(hparams)
+        PARAMS.update(hparams)
 
     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
     if not os.environ.get("MLFLOW_RUN_ID"):
         mlflow.set_experiment(EXPERIMENT_NAME)
 
     logger.info("Running preprocessing on NASA CMAPSS FD001...")
-    windows = preprocess(seq_len=HPARAMS["seq_len"])
+    windows = preprocess(seq_len=PARAMS["seq_len"])
     # FIX 9: explicit dtype=torch.float32
     tensors = torch.tensor(windows, dtype=torch.float32)
 
-    val_size = int(len(tensors) * HPARAMS["val_split"])
+    val_size = int(len(tensors) * PARAMS["val_split"])
     train_size = len(tensors) - val_size
     train_set, val_set = random_split(TensorDataset(tensors), [train_size, val_size])
 
-    train_loader = DataLoader(train_set, batch_size=HPARAMS["batch_size"], shuffle=True)
-    val_loader = DataLoader(val_set, batch_size=HPARAMS["batch_size"])
+    train_loader = DataLoader(train_set, batch_size=PARAMS["batch_size"], shuffle=True)
+    val_loader = DataLoader(val_set, batch_size=PARAMS["batch_size"])
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Training on {device}")
 
     model = LSTMAutoencoder(
-        input_size=HPARAMS["input_size"],
-        hidden_size=HPARAMS["hidden_size"],
-        seq_len=HPARAMS["seq_len"],
-        num_layers=HPARAMS["num_layers"],
-        dropout=HPARAMS["dropout"],
+        input_size=PARAMS["input_size"],
+        hidden_size=PARAMS["hidden_size"],
+        seq_len=PARAMS["seq_len"],
+        num_layers=PARAMS["num_layers"],
+        dropout=PARAMS["dropout"],
     ).to(device)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=HPARAMS["lr"])
+    optimizer = torch.optim.Adam(model.parameters(), lr=PARAMS["lr"])
     criterion = nn.MSELoss()
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5, factor=0.5)
 
     run_id = os.environ.get("MLFLOW_RUN_ID")
     with mlflow.start_run(run_id=run_id) as run:
-        mlflow.log_params(HPARAMS)
+        mlflow.log_params(PARAMS)
         logger.info(f"MLflow run ID: {run.info.run_id}")
 
         best_val_loss = float("inf")
 
-        for epoch in range(1, HPARAMS["epochs"] + 1):
+        for epoch in range(1, PARAMS["epochs"] + 1):
             model.train()
             train_losses = []
             for (batch,) in train_loader:
@@ -111,7 +106,7 @@ def train(hparams=None):
             mlflow.log_metric("val_loss", val_loss, step=epoch)
 
             if epoch % 10 == 0 or epoch == 1:
-                logger.info(f"Epoch {epoch:3d}/{HPARAMS['epochs']} | train={train_loss:.6f} | val={val_loss:.6f}")
+                logger.info(f"Epoch {epoch:3d}/{PARAMS['epochs']} | train={train_loss:.6f} | val={val_loss:.6f}")
 
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
@@ -124,15 +119,15 @@ def train(hparams=None):
         # Compute anomaly threshold on training data
         model.eval()
         all_errors = []
-        full_loader = DataLoader(TensorDataset(tensors), batch_size=HPARAMS["batch_size"])
+        full_loader = DataLoader(TensorDataset(tensors), batch_size=PARAMS["batch_size"])
         with torch.no_grad():
             for (batch,) in full_loader:
                 batch = batch.to(device)
                 errors = model.reconstruction_error(batch)
                 all_errors.extend(errors.cpu().numpy())
 
-        threshold = float(np.percentile(all_errors, HPARAMS["threshold_percentile"]))
-        logger.info(f"Anomaly threshold (p{HPARAMS['threshold_percentile']}): {threshold:.6f}")
+        threshold = float(np.percentile(all_errors, PARAMS["threshold_percentile"]))
+        logger.info(f"Anomaly threshold (p{PARAMS['threshold_percentile']}): {threshold:.6f}")
         mlflow.log_metric("anomaly_threshold", threshold)
 
         # Save threshold locally
@@ -168,11 +163,11 @@ def train(hparams=None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--hidden_size", type=int, default=HPARAMS["hidden_size"])
-    parser.add_argument("--num_layers", type=int, default=HPARAMS["num_layers"])
-    parser.add_argument("--seq_len", type=int, default=HPARAMS["seq_len"])
-    parser.add_argument("--lr", type=float, default=HPARAMS["lr"])
-    parser.add_argument("--epochs", type=int, default=HPARAMS["epochs"])
-    parser.add_argument("--batch_size", type=int, default=HPARAMS["batch_size"])
+    parser.add_argument("--hidden_size", type=int, default=PARAMS["hidden_size"])
+    parser.add_argument("--num_layers", type=int, default=PARAMS["num_layers"])
+    parser.add_argument("--seq_len", type=int, default=PARAMS["seq_len"])
+    parser.add_argument("--lr", type=float, default=PARAMS["lr"])
+    parser.add_argument("--epochs", type=int, default=PARAMS["epochs"])
+    parser.add_argument("--batch_size", type=int, default=PARAMS["batch_size"])
     args = parser.parse_args()
     train(hparams=vars(args))

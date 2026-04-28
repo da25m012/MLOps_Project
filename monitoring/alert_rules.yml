@@ -1,0 +1,57 @@
+groups:
+  - name: anomaly_detection_alerts
+    interval: 30s
+    rules:
+
+      # Alert if error rate exceeds 5% over last 5 minutes
+      - alert: HighAnomalyRate
+        expr: |
+          rate(anomaly_detections_total{severity="high"}[5m]) /
+          (rate(inference_requests_total[5m]) + 0.001) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High anomaly rate detected"
+          description: "More than 5% of inference requests are returning HIGH severity anomalies."
+
+      # Alert if any data drift is detected (z-score > 2 on any feature)
+      - alert: DataDriftDetected
+        expr: model_reconstruction_error > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Potential data drift detected"
+          description: "Reconstruction error has been above 0.5 for 5 minutes, indicating possible data drift."
+
+      # Alert if backend is down
+      - alert: BackendDown
+        expr: up{job="anomaly_backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Anomaly detection backend is down"
+          description: "The FastAPI backend has been unreachable for more than 1 minute."
+
+      # Alert if frontend is down
+      - alert: FrontendDown
+        expr: up{job="anomaly_frontend"} == 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Flask frontend is down"
+          description: "The Flask dashboard has been unreachable for more than 1 minute."
+
+      # Alert if inference latency p95 exceeds 500ms
+      - alert: HighInferenceLatency
+        expr: |
+          histogram_quantile(0.95, rate(inference_latency_seconds_bucket[5m])) > 0.5
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High inference latency"
+          description: "95th percentile inference latency has exceeded 500ms for 3 minutes."

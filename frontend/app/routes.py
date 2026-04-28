@@ -9,6 +9,7 @@ import os
 
 import requests
 from flask import Blueprint, jsonify, render_template
+from .metrics import backend_health_status, track_request
 
 logger = logging.getLogger(__name__)
 bp = Blueprint("main", __name__)
@@ -26,9 +27,14 @@ def _get_backend(path: str, timeout: int = 5):
     try:
         resp = requests.get(f"{BACKEND_URL}{path}", timeout=timeout)
         resp.raise_for_status()
-        return resp.json(), None
+        data = resp.json()
+        # Update health gauge based on /health response
+        if path == "/health":
+            backend_health_status.set(1 if data.get("status") == "ok" else 0)
+        return data, None
     except Exception as e:
         logger.error(f"Backend GET {path} failed: {e}")
+        backend_health_status.set(0)
         return None, str(e)
 
 
@@ -67,12 +73,14 @@ def _get_latest_task_instances(dag_id: str, dag_runs: list):
 
 @bp.route("/")
 @bp.route("/dashboard")
+@track_request
 def dashboard():
     health, _ = _get_backend("/health")
     return render_template("dashboard.html", health=health)
 
 
 @bp.route("/pipeline")
+@track_request
 def pipeline():
     status, err = _get_backend("/pipeline/status")
 

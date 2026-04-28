@@ -129,6 +129,10 @@
       <tr>
         <td style="font-size:0.75rem;color:var(--muted)">{{ run.dag_run_id[:35] }}...</td>
         <td style="font-size:0.8rem">{{ (run.execution_date or '')[:19].replace('T',' ') }}</td>
+        <td style="font-size:0.8rem">{{ (run.start_date or '')[:19].replace('T',' ') }}</td>
+        <td style="font-size:0.8rem" class="duration-cell"
+            data-start="{{ run.start_date or '' }}"
+            data-end="{{ run.end_date or '' }}">—</td>
         <td><span class="badge {{ sc }}">{{ run.state or 'unknown' }}</span></td>
         <td style="font-size:0.8rem;color:var(--muted)">{{ run.run_type or '—' }}</td>
       </tr>
@@ -184,6 +188,10 @@
       <tr>
         <td style="font-size:0.75rem;color:var(--muted)">{{ run.dag_run_id[:35] }}...</td>
         <td style="font-size:0.8rem">{{ (run.execution_date or '')[:19].replace('T',' ') }}</td>
+        <td style="font-size:0.8rem">{{ (run.start_date or '')[:19].replace('T',' ') }}</td>
+        <td style="font-size:0.8rem" class="duration-cell"
+            data-start="{{ run.start_date or '' }}"
+            data-end="{{ run.end_date or '' }}">—</td>
         <td><span class="badge {{ sc }}">{{ run.state or 'unknown' }}</span></td>
         <td style="font-size:0.8rem;color:var(--muted)">{{ run.run_type or '—' }}</td>
       </tr>
@@ -272,6 +280,21 @@ async function refreshDag(dagId, tbodyId) {
     }).join('');
   } catch(e) { console.error('Refresh failed:', e); }
 }
+// Calculate durations from data attributes
+function calcDurations() {
+  document.querySelectorAll('.duration-cell').forEach(cell => {
+    const start = cell.dataset.start;
+    const end = cell.dataset.end;
+    if (start && end) {
+      const diff = (new Date(end) - new Date(start)) / 1000;
+      cell.textContent = diff > 60
+        ? (diff / 60).toFixed(1) + 'm'
+        : diff.toFixed(1) + 's';
+    }
+  });
+}
+calcDurations();
+
 setInterval(() => {
   refreshDag('ingest_nasa_cmapss', 'ingestion-runs-body');
   refreshDag('ml_training_pipeline', 'training-runs-body');

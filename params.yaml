@@ -1,0 +1,15 @@
+train:
+  input_size: 14
+  hidden_size: 64
+  num_layers: 2
+  seq_len: 30
+  dropout: 0.2
+  lr: 0.001
+  epochs: 10
+  batch_size: 32
+  val_split: 0.1
+  threshold_percentile: 95
+
+preprocess:
+  normal_cycles: 125
+  seq_len: 30

@@ -13,6 +13,7 @@ import numpy as np
 import torch
 
 from model import LSTMAutoencoder
+from preprocess import load_test_data, load_scaler, FEATURES, INPUT_SIZE, make_windows
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -136,8 +137,18 @@ if __name__ == "__main__":
     if not os.path.exists(THRESHOLD_PATH):
         raise FileNotFoundError(f"threshold.txt not found. Run train.py first.")
 
-    windows = np.load(WINDOWS_PATH).astype(np.float32)
+    # windows = np.load(WINDOWS_PATH).astype(np.float32)
+    test_df = load_test_data()                         # loads test_FD001.txt
+    scaler  = load_scaler()                            # uses the already-fitted scaler (do NOT refit)
+    test_scaled = scaler.transform(test_df[FEATURES])  # scale with training scaler
     threshold = load_threshold()
+
+    all_test_windows = []
+    for engine_id, group in test_df.groupby("engine_id"):
+        scaled_group = scaler.transform(group[FEATURES])
+        if len(scaled_group) >= 30:
+            all_test_windows.append(make_windows(scaled_group, seq_len=30))
+    windows = np.concatenate(all_test_windows, axis=0).astype(np.float32)
 
     # Load scaler to get baseline stats for drift report
     scaler = joblib.load(SCALER_PATH)

@@ -11,6 +11,11 @@ stages:
       hash: md5
       md5: 3945a897411f56ac5936eadfe1b59125
       size: 5447
+    params:
+      params.yaml:
+        preprocess:
+          normal_cycles: 125
+          seq_len: 30
     outs:
     - path: data/processed/drift_baseline.json
       hash: md5
@@ -37,37 +42,59 @@ stages:
       size: 16128128
     - path: ml/evaluate.py
       hash: md5
-      md5: 2956526f21e6bb43628e99f07654e836
-      size: 3994
+      md5: 9ae3b4f7e5e135c93ddc3105ec7c2cbf
+      size: 7071
     - path: ml/model.py
       hash: md5
       md5: a6c1f26476436ffaedf61424c7615ca5
       size: 2328
     - path: ml/train.py
       hash: md5
-      md5: 6020d3c7597e71b3023783e41fbafbaa
-      size: 6286
+      md5: 604ee1a7f2ac5e6a2a4dd312bd44cd34
+      size: 6781
+    params:
+      params.yaml:
+        train:
+          input_size: 14
+          hidden_size: 64
+          num_layers: 2
+          seq_len: 30
+          dropout: 0.2
+          lr: 0.001
+          epochs: 10
+          batch_size: 32
+          val_split: 0.1
+          threshold_percentile: 95
     outs:
     - path: data/processed/threshold.txt
       hash: md5
-      md5: 580cbf9a0461f7aa1278b14240e4800e
+      md5: 8a2f62a8055575cc6f88a9e7fb2e305d
       size: 20
   evaluate:
     cmd: python3 ml/evaluate.py
     deps:
     - path: data/processed/threshold.txt
       hash: md5
-      md5: 580cbf9a0461f7aa1278b14240e4800e
+      md5: 8a2f62a8055575cc6f88a9e7fb2e305d
       size: 20
     - path: data/processed/windows.npy
       hash: md5
       md5: 3867fd23cc6cd690dbfc8512f9cd5773
       size: 16128128
+    - path: data/raw/test_FD001.txt
+      hash: md5
+      md5: 62316d1dd70f88a9a43a1e2690765437
+      size: 2228855
     - path: ml/evaluate.py
       hash: md5
-      md5: 2956526f21e6bb43628e99f07654e836
-      size: 3994
+      md5: 9ae3b4f7e5e135c93ddc3105ec7c2cbf
+      size: 7071
     - path: ml/model.py
       hash: md5
       md5: a6c1f26476436ffaedf61424c7615ca5
       size: 2328
+    outs:
+    - path: data/processed/eval_report.json
+      hash: md5
+      md5: fe7cebf1e762362ff2d547c283c3593a
+      size: 781
