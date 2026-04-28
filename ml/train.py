@@ -146,6 +146,17 @@ def train(hparams=None):
         mlflow.log_artifact(os.path.join(PROCESSED_DIR, "scaler.joblib"))
         mlflow.log_artifact(os.path.join(PROCESSED_DIR, "drift_baseline.json"))
 
+        # Run evaluation and log report as artifact
+        eval_report_path = os.path.join(PROCESSED_DIR, "eval_report.json")
+        eval_summary = evaluate_dataset(model, tensors.numpy(), device)
+        import json as _json
+        with open(eval_report_path, "w") as _f:
+            _json.dump(eval_summary, _f, indent=2)
+        mlflow.log_artifact(eval_report_path)
+        mlflow.log_metric("anomaly_rate", eval_summary["anomaly_rate"])
+        mlflow.log_metric("anomaly_count", eval_summary["anomaly_count"])
+        logger.info(f"Eval report: {eval_summary}")
+
         mlflow.pytorch.log_model(
             model,
             artifact_path="model",

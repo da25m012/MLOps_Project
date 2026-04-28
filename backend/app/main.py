@@ -1,5 +1,13 @@
 """
-FastAPI backend — inference engine.
+FastAPI backend — inference engine for NASA CMAPSS anomaly detection.
+Endpoints:
+  POST /predict          → anomaly detection on a 30×14 sensor window
+  GET  /health           → model load status
+  GET  /ready            → orchestration readiness probe
+  POST /reload           → hot-swap model after retraining (no restart needed)
+  POST /drift            → data drift detection vs training baseline
+  GET  /pipeline/status  → pipeline stats for Flask pipeline visualization
+  GET  /metrics          → Prometheus scrape endpoint
 """
 
 import logging
@@ -11,7 +19,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 
 import numpy as np
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.responses import Response
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -44,10 +52,11 @@ from schemas import (
     MetricWindow,
     PipelineStatus,
     ReadyResponse,
+    FEATURES,
+    SEQ_LEN,
+    NUM_FEATURES,
 )
-
-# FIX 10: import evaluate at startup so errors surface immediately
-from evaluate import detect_drift  # noqa: E402
+from evaluate import detect_drift
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -55,9 +64,6 @@ logger = logging.getLogger(__name__)
 _DEFAULT_DATA_DIR = os.path.normpath(os.path.join(_HERE, "..", "..", "..", "data"))
 DB_PATH = os.environ.get("DB_PATH", os.path.join(_DEFAULT_DATA_DIR, "metrics.db"))
 PROCESSED_DIR = os.environ.get("PROCESSED_DIR", os.path.join(_DEFAULT_DATA_DIR, "processed"))
-
-SEQ_LEN = 30
-FEATURES = ["sensor2","sensor3","sensor4","sensor7","sensor8","sensor9","sensor11","sensor12","sensor13","sensor14","sensor15","sensor17","sensor20","sensor21"]
 
 
 @asynccontextmanager
@@ -69,8 +75,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Anomaly Detection API",
-    description="LSTM Autoencoder inference backend.",
+    title="NASA CMAPSS Anomaly Detection API",
+    description="LSTM Autoencoder inference backend for jet engine anomaly detection.",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -84,26 +90,29 @@ def validate_window(window: list):
     if len(window) != SEQ_LEN:
         raise InvalidWindowError(f"Window must have {SEQ_LEN} rows, got {len(window)}.")
     for row in window:
-        if len(row) != len(FEATURES):
-            raise InvalidWindowError(f"Each row must have {len(FEATURES)} values, got {len(row)}.")
+        if len(row) != NUM_FEATURES:
+            raise InvalidWindowError(f"Each row must have {NUM_FEATURES} values, got {len(row)}.")
 
 
 def get_db():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
-    # FIX 8: Add UNIQUE constraint on timestamp so INSERT OR IGNORE works correctly
     conn.executescript("""
-        CREATE TABLE IF NOT EXISTS metrics (
+        CREATE TABLE IF NOT EXISTS nasa_metrics (
             id        INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TEXT NOT NULL UNIQUE,
-            cpu_usage     REAL,
-            memory_usage  REAL,
-            request_rate  REAL,
-            error_rate    REAL
+            engine_id INTEGER,
+            cycle     INTEGER,
+            sensor2   REAL, sensor3  REAL, sensor4  REAL, sensor7  REAL,
+            sensor8   REAL, sensor9  REAL, sensor11 REAL, sensor12 REAL,
+            sensor13  REAL, sensor14 REAL, sensor15 REAL, sensor17 REAL,
+            sensor20  REAL, sensor21 REAL
         );
         CREATE TABLE IF NOT EXISTS anomaly_results (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp  TEXT NOT NULL UNIQUE,
+            engine_id  INTEGER,
+            cycle      INTEGER,
             is_anomaly INTEGER NOT NULL,
             severity   TEXT NOT NULL,
             score      REAL NOT NULL
@@ -112,8 +121,13 @@ def get_db():
     return conn
 
 
-@app.post("/predict", response_model=AnomalyResult)
+# ── Endpoints ─────────────────────────────────────────────────────────────────
+
+@app.post("/predict", response_model=AnomalyResult, summary="Run anomaly detection")
 async def predict(payload: MetricWindow):
+    """
+    Accepts a 30×14 window of NASA CMAPSS sensor readings and returns anomaly classification.
+    """
     if not model_loader.is_ready():
         raise ModelNotReadyError("Model is not loaded. Check /health for details.")
 
@@ -136,8 +150,11 @@ async def predict(payload: MetricWindow):
     try:
         with get_db() as conn:
             conn.execute(
-                "INSERT OR IGNORE INTO anomaly_results (timestamp, is_anomaly, severity, score) VALUES (?, ?, ?, ?)",
+                """INSERT OR IGNORE INTO anomaly_results
+                   (timestamp, engine_id, cycle, is_anomaly, severity, score)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
                 (payload.timestamp or datetime.utcnow().isoformat(),
+                 payload.engine_id, payload.cycle,
                  result["is_anomaly"], result["severity"], result["score"]),
             )
     except Exception as e:
@@ -150,12 +167,13 @@ async def predict(payload: MetricWindow):
         threshold=result["threshold"],
         timestamp=payload.timestamp,
         engine_id=payload.engine_id,
-        cycle=payload.cycle
+        cycle=payload.cycle,
     )
 
 
-@app.get("/health", response_model=HealthResponse)
+@app.get("/health", response_model=HealthResponse, summary="Model health check")
 async def health():
+    """Returns model load status and MLflow run ID."""
     return HealthResponse(
         status="ok" if model_loader.is_ready() else "degraded",
         model_loaded=model_loader.is_ready(),
@@ -163,15 +181,39 @@ async def health():
     )
 
 
-@app.get("/ready", response_model=ReadyResponse)
+@app.get("/ready", response_model=ReadyResponse, summary="Readiness probe")
 async def ready():
+    """Orchestration readiness probe — used by Docker health checks."""
     if model_loader.is_ready():
         return ReadyResponse(ready=True, detail="Model loaded and ready.")
     return ReadyResponse(ready=False, detail="Model not yet loaded.")
 
 
-@app.post("/drift", response_model=DriftResponse)
+@app.post("/reload", summary="Hot-swap model after retraining")
+async def reload():
+    """
+    Reloads the latest registered MLflow model into memory without restarting the server.
+    Called automatically by the Airflow ml_training_pipeline DAG after training completes.
+    """
+    logger.info("Reload requested — loading latest model from MLflow...")
+    try:
+        model_loader.load_model()
+        return {
+            "status": "reloaded",
+            "model_loaded": model_loader.is_ready(),
+            "mlflow_run_id": model_loader.get_run_id(),
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+    except Exception as e:
+        logger.error(f"Reload failed: {e}")
+        return {"status": "failed", "error": str(e)}
+
+
+@app.post("/drift", response_model=DriftResponse, summary="Data drift detection")
 async def drift(payload: MetricWindow):
+    """
+    Computes per-feature stats on the window and compares against training baseline.
+    """
     validate_window(payload.window)
     arr = np.array(payload.window)
     live_stats = {
@@ -198,21 +240,27 @@ async def drift(payload: MetricWindow):
     )
 
 
-@app.get("/pipeline/status", response_model=PipelineStatus)
+@app.get("/pipeline/status", response_model=PipelineStatus, summary="ML pipeline status")
 async def pipeline_status():
+    """Returns pipeline metadata for the Flask pipeline visualization screen."""
     status = PipelineStatus()
     try:
         with get_db() as conn:
-            row = conn.execute("SELECT MAX(timestamp), COUNT(*) FROM metrics").fetchone()
+            row = conn.execute(
+                "SELECT MAX(timestamp), COUNT(*) FROM nasa_metrics"
+            ).fetchone()
             if row:
                 status.last_ingestion = row[0]
                 status.total_rows_ingested = row[1] or 0
+
             cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
             anomaly_row = conn.execute(
-                "SELECT COUNT(*) FROM anomaly_results WHERE is_anomaly=1 AND timestamp >= ?", (cutoff,)
+                "SELECT COUNT(*) FROM anomaly_results WHERE is_anomaly=1 AND timestamp >= ?",
+                (cutoff,)
             ).fetchone()
             total_row = conn.execute(
-                "SELECT COUNT(*) FROM anomaly_results WHERE timestamp >= ?", (cutoff,)
+                "SELECT COUNT(*) FROM anomaly_results WHERE timestamp >= ?",
+                (cutoff,)
             ).fetchone()
             if total_row and total_row[0]:
                 status.anomaly_rate_24h = round((anomaly_row[0] or 0) / total_row[0], 4)
@@ -230,7 +278,8 @@ async def pipeline_status():
     return status
 
 
-@app.get("/metrics")
+@app.get("/metrics", summary="Prometheus metrics scrape endpoint")
 async def metrics():
+    """Exposes Prometheus instrumentation counters and gauges."""
     data, content_type = get_metrics()
     return Response(content=data, media_type=content_type)

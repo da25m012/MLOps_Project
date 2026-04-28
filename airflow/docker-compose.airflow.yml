@@ -8,14 +8,20 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__FERNET_KEY: ""
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-    PROMETHEUS_URL: http://prometheus:9090
+    # ML pipeline env vars
+    ML_DIR: /app/ml
     DB_PATH: /app/data/metrics.db
     RAW_DIR: /app/data/raw
+    BACKEND_URL: http://host.docker.internal:8000
+    MLFLOW_TRACKING_URI: http://host.docker.internal:5001
     _PIP_ADDITIONAL_REQUIREMENTS: "requests==2.31.0"
   volumes:
     - ./dags:/opt/airflow/dags
     - airflow_logs:/opt/airflow/logs
     - ../data:/app/data
+    - ../ml:/app/ml
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
   depends_on:
     - postgres
 
@@ -33,9 +39,20 @@ services:
       interval: 5s
       retries: 5
 
+  # FIX 3: create admin user after db migrate
   airflow-init:
     <<: *airflow-common
-    command: db migrate
+    command: >
+      bash -c "
+        airflow db migrate &&
+        airflow users create
+          --username admin
+          --password admin
+          --firstname Admin
+          --lastname User
+          --role Admin
+          --email admin@example.com || true
+      "
     depends_on:
       postgres:
         condition: service_healthy

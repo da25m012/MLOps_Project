@@ -115,3 +115,71 @@ def evaluate_dataset(model: LSTMAutoencoder, windows: np.ndarray, device: torch.
     }
     logger.info(f"Evaluation summary: {summary}")
     return summary
+
+
+if __name__ == "__main__":
+    import json
+    import sys
+    import torch
+    import joblib
+
+    sys.path.insert(0, os.path.dirname(__file__))
+    from model import LSTMAutoencoder
+    from preprocess import INPUT_SIZE, FEATURES
+
+    WINDOWS_PATH = os.path.join(PROCESSED_DIR, "windows.npy")
+    SCALER_PATH  = os.path.join(PROCESSED_DIR, "scaler.joblib")
+    EVAL_PATH    = os.path.join(PROCESSED_DIR, "eval_report.json")
+
+    if not os.path.exists(WINDOWS_PATH):
+        raise FileNotFoundError(f"windows.npy not found. Run preprocess.py first.")
+    if not os.path.exists(THRESHOLD_PATH):
+        raise FileNotFoundError(f"threshold.txt not found. Run train.py first.")
+
+    windows = np.load(WINDOWS_PATH).astype(np.float32)
+    threshold = load_threshold()
+
+    # Load scaler to get baseline stats for drift report
+    scaler = joblib.load(SCALER_PATH)
+
+    # Rebuild model and load from MLflow latest
+    device = torch.device("cpu")
+    import mlflow.pytorch
+    MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "http://localhost:5001")
+    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+
+    try:
+        client = mlflow.tracking.MlflowClient()
+        versions = client.get_latest_versions("lstm_autoencoder")
+        if not versions:
+            raise ValueError("No registered model found.")
+        version = versions[0].version
+        model = mlflow.pytorch.load_model(
+            f"models:/lstm_autoencoder/{version}", map_location=device
+        )
+        model.eval()
+    except Exception as e:
+        logger.error(f"Could not load model from MLflow: {e}")
+        sys.exit(1)
+
+    summary = evaluate_dataset(model, windows, device)
+
+    # Add feature drift baseline check
+    baseline_path = BASELINE_PATH
+    if os.path.exists(baseline_path):
+        with open(baseline_path) as f:
+            baseline = json.load(f)
+        summary["features_monitored"] = FEATURES
+        summary["baseline_features"] = list(baseline.keys())
+
+    summary["threshold"] = threshold
+    summary["seq_len"] = windows.shape[1]
+    summary["num_features"] = windows.shape[2]
+    summary["evaluated_at"] = __import__("datetime").datetime.utcnow().isoformat()
+
+    os.makedirs(PROCESSED_DIR, exist_ok=True)
+    with open(EVAL_PATH, "w") as f:
+        json.dump(summary, f, indent=2)
+
+    logger.info(f"Evaluation report saved to {EVAL_PATH}")
+    print(json.dumps(summary, indent=2))

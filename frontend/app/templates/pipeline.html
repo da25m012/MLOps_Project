@@ -34,57 +34,8 @@
   </div>
 </div>
 {% elif error %}
-<div class="card" style="border-color:var(--red);color:var(--red)">
-  Backend unavailable: {{ error }}
-</div>
+<div class="card" style="border-color:var(--red);color:var(--red)">Backend unavailable: {{ error }}</div>
 {% endif %}
-
-<!-- Dataset info -->
-<div class="card" style="border-color:var(--accent);margin-bottom:1.5rem">
-  <div class="card-title">Dataset — NASA CMAPSS FD001</div>
-  <p style="font-size:0.875rem;color:var(--text);line-height:1.75">
-    The C-MAPSS (Commercial Modular Aero-Propulsion System Simulation) dataset contains run-to-failure
-    data for turbofan jet engines. Subset FD001 has 100 training engines and 100 test engines, each
-    with 21 sensor readings per cycle. 14 informative sensors are selected after removing constant-value
-    channels. The LSTM Autoencoder is trained on early cycles (cycle ≤ 125) where engines are healthy,
-    and flags late cycles (near failure) as anomalous.
-  </p>
-  <div style="margin-top:1rem;display:flex;gap:1rem;flex-wrap:wrap">
-    <span class="badge badge-ok">100 training engines</span>
-    <span class="badge badge-ok">14 sensors selected</span>
-    <span class="badge badge-ok">seq_len = 30 cycles</span>
-    <span class="badge badge-ok">threshold at p95</span>
-  </div>
-</div>
-
-<!-- Pipeline stages -->
-<div class="card">
-  <div class="card-title">Pipeline Stages</div>
-  <div style="display:flex;flex-direction:column;gap:0;align-items:stretch">
-    {% set stages = [
-      ("1", "Data Ingestion", "Airflow DAG reads test_FD001.txt in batches every 5 min → stores to SQLite nasa_metrics table", "green"),
-      ("2", "Versioning",     "DVC tracks raw .txt files and processed windows. Git tracks code and configs.", "accent"),
-      ("3", "Preprocessing",  "14 sensors selected → MinMaxScaler → sliding windows (30×14). Drift baseline saved from normal cycles.", "accent"),
-      ("4", "Training",       "LSTM Autoencoder trained on normal engine cycles (cycle ≤ 125). MLflow logs params, loss curves, threshold.", "accent"),
-      ("5", "Registration",   "Best model registered in MLflow model registry as lstm_autoencoder.", "accent"),
-      ("6", "Serving",        "FastAPI loads registered model. Exposes /predict (30×14 window), /health, /drift, /metrics.", "accent"),
-      ("7", "Monitoring",     "Prometheus scrapes /metrics every 15s. Grafana shows reconstruction error, anomaly counts, latency.", "amber"),
-    ] %}
-    {% for num, title, desc, color in stages %}
-    <div style="display:flex;align-items:flex-start;gap:1rem;padding:1rem 0;border-bottom:1px solid var(--border){% if loop.last %};border-bottom:none{% endif %}">
-      <div style="min-width:32px;height:32px;border-radius:50%;background:var(--{{ color }});display:flex;align-items:center;justify-content:center;font-size:0.8rem;font-weight:700;color:#fff;margin-top:0.1rem">{{ num }}</div>
-      <div>
-        <div style="font-weight:600;font-size:0.95rem;margin-bottom:0.25rem">{{ title }}</div>
-        <div style="font-size:0.85rem;color:var(--muted)">{{ desc }}</div>
-      </div>
-      <div style="margin-left:auto">
-        <span class="badge badge-ok">active</span>
-      </div>
-    </div>
-    {% endfor %}
-  </div>
-</div>
-
 
 <!-- Throughput stats -->
 <div class="card" style="margin-bottom:1.5rem">
@@ -112,103 +63,149 @@
     </div>
   </div>
   <div style="margin-top:1rem;font-size:0.85rem;color:var(--muted);line-height:1.75">
-    Airflow ingestion DAG runs every <strong style="color:var(--text)">5 minutes</strong>, 
-    processing <strong style="color:var(--text)">10 engine cycle records</strong> per run. 
-    Inference throughput: <strong style="color:var(--text)">&lt;100ms per window</strong> 
-    at the FastAPI /predict endpoint.
+    Airflow ingestion DAG runs every <strong style="color:var(--text)">5 minutes</strong>,
+    processing <strong style="color:var(--text)">10 engine cycle records</strong> per run.
+    Inference throughput: <strong style="color:var(--text)">&lt;100ms per window</strong> at /predict.
   </div>
 </div>
 
-<!-- ── Airflow Pipeline Management Console ─────────────────────────────── -->
+<!-- Pipeline stages -->
 <div class="card">
-  <div class="card-title">Pipeline Management Console — Airflow DAG Runs</div>
+  <div class="card-title">Pipeline Stages</div>
+  <div style="display:flex;flex-direction:column">
+    {% set stages = [
+      ("1", "Data Ingestion",  "Airflow DAG (ingest_nasa_cmapss) reads test_FD001.txt in batches every 5 min → stores to SQLite nasa_metrics table", "green"),
+      ("2", "Versioning",      "DVC tracks train_FD001.txt, test_FD001.txt and processed artifacts. Git tracks all code.", "accent"),
+      ("3", "Preprocessing",   "14 sensors selected → MinMaxScaler → sliding windows (30×14). Drift baseline saved from normal cycles.", "accent"),
+      ("4", "Training",        "LSTM Autoencoder trained on normal cycles (cycle ≤ 125). MLflow logs params, loss curves, threshold, artifacts.", "accent"),
+      ("5", "Registration",    "Best model registered in MLflow model registry as lstm_autoencoder.", "accent"),
+      ("6", "Serving",         "FastAPI loads registered model. /reload endpoint allows hot-swap after retraining.", "accent"),
+      ("7", "Monitoring",      "Prometheus scrapes /metrics every 15s. Grafana visualizes reconstruction error, anomaly counts, latency.", "amber"),
+    ] %}
+    {% for num, title, desc, color in stages %}
+    <div style="display:flex;align-items:flex-start;gap:1rem;padding:1rem 0;border-bottom:1px solid var(--border){% if loop.last %};border-bottom:none{% endif %}">
+      <div style="min-width:32px;height:32px;border-radius:50%;background:var(--{{ color }});display:flex;align-items:center;justify-content:center;font-size:0.8rem;font-weight:700;color:#fff">{{ num }}</div>
+      <div>
+        <div style="font-weight:600;font-size:0.95rem;margin-bottom:0.25rem">{{ title }}</div>
+        <div style="font-size:0.85rem;color:var(--muted)">{{ desc }}</div>
+      </div>
+      <div style="margin-left:auto"><span class="badge badge-ok">active</span></div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
 
-  {% if dag_error %}
+<!-- ── DAG 1: Ingestion Pipeline Console ────────────────────────────────── -->
+<div class="card">
+  <div class="card-title">Pipeline Console — Ingestion DAG (ingest_nasa_cmapss)</div>
+  {% if ingestion_err %}
   <div style="color:var(--amber);font-size:0.85rem;margin-bottom:1rem">
-    ⚠ Airflow unavailable: {{ dag_error }} —
-    <a href="http://localhost:8080" target="_blank" style="color:var(--accent)">Open Airflow UI</a>
+    ⚠ Airflow unavailable: {{ ingestion_err }}
   </div>
   {% endif %}
 
-  <!-- Latest task instance statuses -->
-  {% if task_instances %}
+  {% if ingestion_tasks %}
   <div style="margin-bottom:1.5rem">
-    <div style="font-size:0.75rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.75rem">
-      Latest Run — Task Status
-    </div>
+    <div style="font-size:0.75rem;font-weight:600;color:var(--muted);text-transform:uppercase;margin-bottom:0.75rem">Latest Run — Task Status</div>
     <div style="display:flex;gap:0.75rem;flex-wrap:wrap">
-      {% for ti in task_instances %}
-      {% set color = "badge-ok" if ti.state == "success" else ("badge-high" if ti.state == "failed" else "badge-low") %}
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:0.75rem 1rem;min-width:160px">
+      {% for ti in ingestion_tasks %}
+      {% set c = "badge-ok" if ti.state == "success" else ("badge-high" if ti.state == "failed" else "badge-low") %}
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:0.75rem 1rem;min-width:140px">
         <div style="font-size:0.8rem;font-weight:600;margin-bottom:0.25rem">{{ ti.task_id }}</div>
-        <span class="badge {{ color }}">{{ ti.state or 'unknown' }}</span>
-        {% if ti.duration %}
-        <div style="font-size:0.75rem;color:var(--muted);margin-top:0.25rem">{{ "%.1f"|format(ti.duration) }}s</div>
-        {% endif %}
+        <span class="badge {{ c }}">{{ ti.state or 'unknown' }}</span>
+        {% if ti.duration %}<div style="font-size:0.75rem;color:var(--muted);margin-top:0.25rem">{{ "%.1f"|format(ti.duration) }}s</div>{% endif %}
       </div>
       {% endfor %}
     </div>
   </div>
   {% endif %}
 
-  <!-- DAG run history table -->
-  <div style="font-size:0.75rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.75rem">
-    Recent DAG Runs (last 20)
-  </div>
-
-  {% if dag_runs %}
-  <table id="dag-runs-table">
-    <thead>
+  {% if ingestion_runs %}
+  <table>
+    <thead><tr><th>Run ID</th><th>Execution Date</th><th>State</th><th>Type</th></tr></thead>
+    <tbody id="ingestion-runs-body">
+      {% for run in ingestion_runs %}
+      {% set sc = "badge-ok" if run.state == "success" else ("badge-high" if run.state == "failed" else "badge-low") %}
       <tr>
-        <th>Run ID</th>
-        <th>Execution Date</th>
-        <th>Start Date</th>
-        <th>Duration</th>
-        <th>State</th>
-        <th>Type</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for run in dag_runs %}
-      {% set state_badge = "badge-ok" if run.state == "success" else ("badge-high" if run.state == "failed" else "badge-low") %}
-      <tr>
-        <td style="font-size:0.75rem;color:var(--muted);max-width:200px;overflow:hidden;text-overflow:ellipsis">
-          {{ run.dag_run_id[:40] }}...
-        </td>
+        <td style="font-size:0.75rem;color:var(--muted)">{{ run.dag_run_id[:35] }}...</td>
         <td style="font-size:0.8rem">{{ (run.execution_date or '')[:19].replace('T',' ') }}</td>
-        <td style="font-size:0.8rem">{{ (run.start_date or '')[:19].replace('T',' ') }}</td>
-        <td style="font-size:0.8rem">
-          {% if run.end_date and run.start_date %}
-            —
-          {% else %}
-            —
-          {% endif %}
-        </td>
-        <td><span class="badge {{ state_badge }}">{{ run.state or 'unknown' }}</span></td>
+        <td><span class="badge {{ sc }}">{{ run.state or 'unknown' }}</span></td>
         <td style="font-size:0.8rem;color:var(--muted)">{{ run.run_type or '—' }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
   {% else %}
-  <div style="color:var(--muted);font-size:0.875rem;padding:1rem 0">
-    No DAG runs found. Enable the <code>ingest_nasa_cmapss</code> DAG in Airflow to start ingestion.
-  </div>
+  <div style="color:var(--muted);font-size:0.875rem;padding:1rem 0">No ingestion runs found. Enable the DAG in Airflow.</div>
   {% endif %}
-
-  <div style="margin-top:1rem;display:flex;gap:0.75rem">
+  <div style="margin-top:1rem">
     <a href="http://localhost:8080/dags/ingest_nasa_cmapss" target="_blank"
        style="display:inline-block;background:var(--accent);color:#fff;padding:0.4rem 1rem;border-radius:8px;text-decoration:none;font-size:0.8rem;font-weight:600">
       Manage in Airflow →
     </a>
-    <button onclick="refreshRuns()"
-       style="background:var(--surface);border:1px solid var(--border);color:var(--text);padding:0.4rem 1rem;border-radius:8px;font-size:0.8rem;cursor:pointer">
+    <button onclick="refreshDag('ingest_nasa_cmapss','ingestion-runs-body')"
+       style="background:var(--surface);border:1px solid var(--border);color:var(--text);padding:0.4rem 1rem;border-radius:8px;font-size:0.8rem;cursor:pointer;margin-left:0.5rem">
       Refresh
     </button>
   </div>
 </div>
 
-<!-- DVC pipeline console -->
+<!-- ── DAG 2: ML Training Pipeline Console ──────────────────────────────── -->
+<div class="card">
+  <div class="card-title">Pipeline Console — ML Training DAG (ml_training_pipeline)</div>
+  {% if training_err %}
+  <div style="color:var(--amber);font-size:0.85rem;margin-bottom:1rem">
+    ⚠ Airflow unavailable: {{ training_err }}
+  </div>
+  {% endif %}
+
+  {% if training_tasks %}
+  <div style="margin-bottom:1.5rem">
+    <div style="font-size:0.75rem;font-weight:600;color:var(--muted);text-transform:uppercase;margin-bottom:0.75rem">Latest Run — Task Status</div>
+    <div style="display:flex;gap:0.75rem;flex-wrap:wrap">
+      {% for ti in training_tasks %}
+      {% set c = "badge-ok" if ti.state == "success" else ("badge-high" if ti.state == "failed" else "badge-low") %}
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:0.75rem 1rem;min-width:140px">
+        <div style="font-size:0.8rem;font-weight:600;margin-bottom:0.25rem">{{ ti.task_id }}</div>
+        <span class="badge {{ c }}">{{ ti.state or 'unknown' }}</span>
+        {% if ti.duration %}<div style="font-size:0.75rem;color:var(--muted);margin-top:0.25rem">{{ "%.1f"|format(ti.duration) }}s</div>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if training_runs %}
+  <table>
+    <thead><tr><th>Run ID</th><th>Execution Date</th><th>State</th><th>Type</th></tr></thead>
+    <tbody id="training-runs-body">
+      {% for run in training_runs %}
+      {% set sc = "badge-ok" if run.state == "success" else ("badge-high" if run.state == "failed" else "badge-low") %}
+      <tr>
+        <td style="font-size:0.75rem;color:var(--muted)">{{ run.dag_run_id[:35] }}...</td>
+        <td style="font-size:0.8rem">{{ (run.execution_date or '')[:19].replace('T',' ') }}</td>
+        <td><span class="badge {{ sc }}">{{ run.state or 'unknown' }}</span></td>
+        <td style="font-size:0.8rem;color:var(--muted)">{{ run.run_type or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="color:var(--muted);font-size:0.875rem;padding:1rem 0">No training runs found. Trigger the DAG manually or wait for the daily schedule.</div>
+  {% endif %}
+  <div style="margin-top:1rem">
+    <a href="http://localhost:8080/dags/ml_training_pipeline" target="_blank"
+       style="display:inline-block;background:var(--accent);color:#fff;padding:0.4rem 1rem;border-radius:8px;text-decoration:none;font-size:0.8rem;font-weight:600">
+      Manage in Airflow →
+    </a>
+    <button onclick="refreshDag('ml_training_pipeline','training-runs-body')"
+       style="background:var(--surface);border:1px solid var(--border);color:var(--text);padding:0.4rem 1rem;border-radius:8px;font-size:0.8rem;cursor:pointer;margin-left:0.5rem">
+      Refresh
+    </button>
+  </div>
+</div>
+
+<!-- DVC DAG -->
 <div class="card">
   <div class="card-title">DVC Pipeline DAG</div>
   <pre style="background:#0a0d16;border-radius:8px;padding:1rem;font-size:0.8rem;color:#a3e6cb;overflow-x:auto">
@@ -218,9 +215,8 @@
             │
             ▼
 +---------------------------+
-| preprocess                |   preprocess.py → data/processed/
-|  - select 14 sensors      |   windows.npy, scaler.joblib,
-|  - normal cycles only     |   drift_baseline.json
+| preprocess                |   preprocess.py → windows.npy, scaler.joblib,
+|  - select 14 sensors      |   drift_baseline.json
 |  - sliding windows 30×14  |
 +---------------------------+
             │
@@ -228,7 +224,6 @@
 +---------------------------+
 | train                     |   train.py → MLflow model registry
 |  - LSTM Autoencoder       |   lstm_autoencoder v{N}
-|  - 50 epochs              |
 |  - threshold at p95       |
 +---------------------------+
             │
@@ -241,9 +236,6 @@
 <!-- Links -->
 <div class="card">
   <div class="card-title">Experiment Tracking & Monitoring</div>
-  <p style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem">
-    All training runs are tracked in MLflow. Airflow manages data ingestion. Grafana shows live metrics.
-  </p>
   <a href="http://localhost:5001" target="_blank"
      style="display:inline-block;background:var(--accent);color:#fff;padding:0.5rem 1.25rem;border-radius:8px;text-decoration:none;font-size:0.875rem;font-weight:600">
     Open MLflow UI →
@@ -261,32 +253,28 @@
 
 {% block scripts %}
 <script>
-async function refreshRuns() {
+async function refreshDag(dagId, tbodyId) {
   try {
-    const r = await fetch('/api/dag-runs');
+    const r = await fetch(`/api/dag-runs/${dagId}`);
     if (!r.ok) return;
     const runs = await r.json();
-    const tbody = document.querySelector('#dag-runs-table tbody');
+    const tbody = document.getElementById(tbodyId);
     if (!tbody || !runs.length) return;
-
     tbody.innerHTML = runs.map(run => {
-      const stateClass = run.state === 'success' ? 'badge-ok' :
-                         run.state === 'failed'  ? 'badge-high' : 'badge-low';
+      const sc = run.state === 'success' ? 'badge-ok' :
+                 run.state === 'failed'  ? 'badge-high' : 'badge-low';
       return `<tr>
-        <td style="font-size:0.75rem;color:var(--muted)">${(run.dag_run_id||'').substring(0,40)}...</td>
+        <td style="font-size:0.75rem;color:var(--muted)">${(run.dag_run_id||'').substring(0,35)}...</td>
         <td style="font-size:0.8rem">${(run.execution_date||'').substring(0,19).replace('T',' ')}</td>
-        <td style="font-size:0.8rem">${(run.start_date||'').substring(0,19).replace('T',' ')}</td>
-        <td style="font-size:0.8rem">—</td>
-        <td><span class="badge ${stateClass}">${run.state||'unknown'}</span></td>
+        <td><span class="badge ${sc}">${run.state||'unknown'}</span></td>
         <td style="font-size:0.8rem;color:var(--muted)">${run.run_type||'—'}</td>
       </tr>`;
     }).join('');
-  } catch(e) {
-    console.error('Failed to refresh runs:', e);
-  }
+  } catch(e) { console.error('Refresh failed:', e); }
 }
-
-// Auto-refresh every 60 seconds
-setInterval(refreshRuns, 60000);
+setInterval(() => {
+  refreshDag('ingest_nasa_cmapss', 'ingestion-runs-body');
+  refreshDag('ml_training_pipeline', 'training-runs-body');
+}, 60000);
 </script>
 {% endblock %}

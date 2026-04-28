@@ -1,6 +1,6 @@
 stages:
   preprocess:
-    cmd: python3 ml/preprocess.py
+    cmd: python ml/preprocess.py
     deps:
       - ml/preprocess.py
       - data/raw/train_FD001.txt
@@ -10,7 +10,7 @@ stages:
       - data/processed/drift_baseline.json
 
   train:
-    cmd: python3 ml/train.py
+    cmd: python ml/train.py
     deps:
       - ml/train.py
       - ml/model.py
@@ -21,9 +21,11 @@ stages:
       - data/processed/threshold.txt
 
   evaluate:
-    cmd: python3 ml/evaluate.py
+    cmd: python ml/evaluate.py
     deps:
       - ml/evaluate.py
       - ml/model.py
       - data/processed/windows.npy
       - data/processed/threshold.txt
+    outs:
+      - data/processed/eval_report.json

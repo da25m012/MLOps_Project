@@ -1,15 +1,14 @@
 """
 Flask routes.
 All backend communication goes through REST API calls to FastAPI.
-Airflow REST API called directly for pipeline management console.
+Airflow REST API called for pipeline management console (both DAGs).
 """
 
 import logging
 import os
-import base64
 
 import requests
-from flask import Blueprint, current_app, jsonify, render_template
+from flask import Blueprint, jsonify, render_template
 
 logger = logging.getLogger(__name__)
 bp = Blueprint("main", __name__)
@@ -18,11 +17,12 @@ BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
 AIRFLOW_URL = os.environ.get("AIRFLOW_URL", "http://localhost:8080")
 AIRFLOW_USER = os.environ.get("AIRFLOW_USER", "admin")
 AIRFLOW_PASS = os.environ.get("AIRFLOW_PASS", "admin")
-DAG_ID = "ingest_nasa_cmapss"
+
+INGESTION_DAG_ID = "ingest_nasa_cmapss"
+TRAINING_DAG_ID  = "ml_training_pipeline"
 
 
 def _get_backend(path: str, timeout: int = 5):
-    """Helper for backend GET requests."""
     try:
         resp = requests.get(f"{BACKEND_URL}{path}", timeout=timeout)
         resp.raise_for_status()
@@ -33,7 +33,6 @@ def _get_backend(path: str, timeout: int = 5):
 
 
 def _get_airflow(path: str, timeout: int = 5):
-    """Helper for Airflow REST API GET requests."""
     try:
         resp = requests.get(
             f"{AIRFLOW_URL}/api/v1{path}",
@@ -45,6 +44,23 @@ def _get_airflow(path: str, timeout: int = 5):
     except Exception as e:
         logger.error(f"Airflow GET {path} failed: {e}")
         return None, str(e)
+
+
+def _get_dag_runs(dag_id: str, limit: int = 10):
+    data, err = _get_airflow(f"/dags/{dag_id}/dagRuns?limit={limit}&order_by=-execution_date")
+    if data:
+        return data.get("dag_runs", []), err
+    return [], err
+
+
+def _get_latest_task_instances(dag_id: str, dag_runs: list):
+    if not dag_runs:
+        return []
+    latest_run_id = dag_runs[0].get("dag_run_id")
+    if not latest_run_id:
+        return []
+    data, _ = _get_airflow(f"/dags/{dag_id}/dagRuns/{latest_run_id}/taskInstances")
+    return data.get("task_instances", []) if data else []
 
 
 # ── Pages ─────────────────────────────────────────────────────────────────────
@@ -60,25 +76,24 @@ def dashboard():
 def pipeline():
     status, err = _get_backend("/pipeline/status")
 
-    # Fetch DAG run history from Airflow
-    dag_runs, dag_err = _get_airflow(f"/dags/{DAG_ID}/dagRuns?limit=20&order_by=-execution_date")
-    task_instances = None
+    # Ingestion DAG
+    ingestion_runs, ingestion_err = _get_dag_runs(INGESTION_DAG_ID, limit=10)
+    ingestion_tasks = _get_latest_task_instances(INGESTION_DAG_ID, ingestion_runs)
 
-    # Fetch latest task instance statuses
-    if dag_runs and dag_runs.get("dag_runs"):
-        latest_run_id = dag_runs["dag_runs"][0].get("dag_run_id")
-        if latest_run_id:
-            task_instances, _ = _get_airflow(
-                f"/dags/{DAG_ID}/dagRuns/{latest_run_id}/taskInstances"
-            )
+    # Training DAG
+    training_runs, training_err = _get_dag_runs(TRAINING_DAG_ID, limit=10)
+    training_tasks = _get_latest_task_instances(TRAINING_DAG_ID, training_runs)
 
     return render_template(
         "pipeline.html",
         status=status,
         error=err,
-        dag_runs=dag_runs.get("dag_runs", []) if dag_runs else [],
-        dag_error=dag_err,
-        task_instances=task_instances.get("task_instances", []) if task_instances else [],
+        ingestion_runs=ingestion_runs,
+        ingestion_tasks=ingestion_tasks,
+        ingestion_err=ingestion_err,
+        training_runs=training_runs,
+        training_tasks=training_tasks,
+        training_err=training_err,
     )
 
 
@@ -105,19 +120,9 @@ def api_health():
     return jsonify(data)
 
 
-@bp.route("/api/dag-runs")
-def api_dag_runs():
-    """Returns recent DAG run history for live refresh."""
-    data, err = _get_airflow(f"/dags/{DAG_ID}/dagRuns?limit=20&order_by=-execution_date")
+@bp.route("/api/dag-runs/<dag_id>")
+def api_dag_runs(dag_id):
+    runs, err = _get_dag_runs(dag_id, limit=10)
     if err:
         return jsonify({"error": err}), 502
-    return jsonify(data.get("dag_runs", []))
-
-
-@bp.route("/api/dag-runs/<run_id>/tasks")
-def api_task_instances(run_id):
-    """Returns task instances for a specific DAG run."""
-    data, err = _get_airflow(f"/dags/{DAG_ID}/dagRuns/{run_id}/taskInstances")
-    if err:
-        return jsonify({"error": err}), 502
-    return jsonify(data.get("task_instances", []))
+    return jsonify(runs)
