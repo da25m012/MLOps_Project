@@ -102,35 +102,6 @@
 <script>
 const history = [];
 
-// 14 sensor values — simulate realistic CMAPSS ranges
-function getLiveSensors() {
-  return {
-    s2:  +(641 + Math.random() * 2).toFixed(2),
-    s3:  +(1589 + Math.random() * 5).toFixed(2),
-    s4:  +(1400 + Math.random() * 10).toFixed(2),
-    s7:  +(554 + Math.random() * 3).toFixed(2),
-    s8:  +(2388 + Math.random() * 5).toFixed(2),
-    s9:  +(9065 + Math.random() * 20).toFixed(2),
-    s11: +(47 + Math.random() * 2).toFixed(2),
-    s12: +(521 + Math.random() * 5).toFixed(2),
-    s13: +(2388 + Math.random() * 5).toFixed(2),
-    s14: +(8138 + Math.random() * 20).toFixed(2),
-    s15: +(8.44 + Math.random() * 0.05).toFixed(4),
-    s17: +(392 + Math.random() * 3).toFixed(2),
-    s20: +(38.8 + Math.random() * 0.5).toFixed(2),
-    s21: +(23 + Math.random() * 0.5).toFixed(2),
-    engine_id: Math.floor(Math.random() * 100) + 1,
-    cycle: Math.floor(Math.random() * 200) + 1,
-  };
-}
-
-function makeWindow(s) {
-  const vals = [s.s2,s.s3,s.s4,s.s7,s.s8,s.s9,s.s11,s.s12,s.s13,s.s14,s.s15,s.s17,s.s20,s.s21];
-  return Array.from({length: 30}, () =>
-    vals.map(v => v + (Math.random() - 0.5) * v * 0.01)
-  );
-}
-
 function severityBadge(s) {
   return `<span class="badge badge-${s}">${s.toUpperCase()}</span>`;
 }
@@ -166,38 +137,60 @@ async function runCheck() {
   const spinner = document.getElementById('latest-spinner');
   spinner.style.display = 'inline-block';
 
-  const s = getLiveSensors();
-  updateStatCards(s);
-
   try {
-    const resp = await fetch('http://localhost:8000/predict', {
+    // 1. Get REAL data
+    const winResp = await fetch('/api/latest-window');
+    const winData = await winResp.json();
+
+    if (winData.error) throw new Error(winData.error);
+
+    // Update stat cards from real data
+    const latest = winData.window[winData.window.length - 1];
+
+    document.getElementById('stat-s2').textContent = latest[0];
+    document.getElementById('stat-s4').textContent = latest[2];
+    document.getElementById('stat-s11').textContent = latest[6];
+    document.getElementById('stat-s12').textContent = latest[7];
+    document.getElementById('stat-engine').textContent = winData.engine_id;
+    document.getElementById('stat-cycle').textContent = winData.cycle;
+
+    // 2. Send to model
+    const resp = await fetch('/api/predict', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        window: makeWindow(s),
-        timestamp: new Date().toISOString(),
-        engine_id: s.engine_id,
-        cycle: s.cycle,
-      }),
+      body: JSON.stringify(winData),
     });
 
-    if (!resp.ok) throw new Error('backend not ready');
     const d = await resp.json();
 
-    document.getElementById('latest-severity').innerHTML = severityBadge(d.severity);
-    document.getElementById('latest-score').textContent = d.score.toFixed(5);
-    document.getElementById('latest-threshold').textContent = d.threshold.toFixed(5);
+    if (!resp.ok) throw new Error(d.error || "predict failed");
+
+    // 3. Update UI
+    document.getElementById('latest-severity').innerHTML =
+      severityBadge(d.severity);
+    document.getElementById('latest-score').textContent =
+      d.score.toFixed(5);
+    document.getElementById('latest-threshold').textContent =
+      d.threshold.toFixed(5);
 
     history.push({
       ts: new Date().toLocaleTimeString(),
-      engine_id: s.engine_id, cycle: s.cycle,
-      s2: s.s2, s4: s.s4, s11: s.s11, s12: s.s12,
-      score: d.score, severity: d.severity,
+      engine_id: winData.engine_id,
+      cycle: winData.cycle,
+      s2: latest[0],
+      s4: latest[2],
+      s11: latest[6],
+      s12: latest[7],
+      score: d.score,
+      severity: d.severity,
     });
+
     updateTable();
+
   } catch (e) {
+    console.error("REAL PIPELINE ERROR:", e);
     document.getElementById('latest-severity').innerHTML =
-      '<span style="color:var(--muted)">backend offline</span>';
+      '<span style="color:red">Error</span>';
   } finally {
     spinner.style.display = 'none';
   }

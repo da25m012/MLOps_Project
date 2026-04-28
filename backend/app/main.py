@@ -19,8 +19,10 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 
 import numpy as np
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, APIRouter
 from fastapi.responses import Response
+import sqlite3
+from datetime import datetime
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ML_DIR = "/app/ml"
@@ -79,6 +81,16 @@ app = FastAPI(
     description="LSTM Autoencoder inference backend for jet engine anomaly detection.",
     version="1.0.0",
     lifespan=lifespan,
+)
+
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # or frontend URL
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "OPTIONS"], 
+    allow_headers=["*"],
 )
 
 app.add_exception_handler(ModelNotReadyError, model_not_ready_handler)
@@ -169,6 +181,10 @@ async def predict(payload: MetricWindow):
         engine_id=payload.engine_id,
         cycle=payload.cycle,
     )
+
+@app.options("/predict")
+async def options_predict(request: Request):
+    return {}
 
 
 @app.get("/health", response_model=HealthResponse, summary="Model health check")
@@ -283,3 +299,66 @@ async def metrics():
     """Exposes Prometheus instrumentation counters and gauges."""
     data, content_type = get_metrics()
     return Response(content=data, media_type=content_type)
+
+import sqlite3
+from datetime import datetime
+
+@app.get("/latest-window")
+def latest_window():
+    conn = get_db()   # ✅ use your existing DB helper
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    # latest engine
+    cur.execute("""
+        SELECT engine_id 
+        FROM nasa_metrics 
+        ORDER BY timestamp DESC 
+        LIMIT 1
+    """)
+    row = cur.fetchone()
+    if not row:
+        return {"error": "no data"}
+
+    engine_id = row["engine_id"]
+
+    # last 30 rows
+    cur.execute("""
+        SELECT * FROM nasa_metrics
+        WHERE engine_id = ?
+        ORDER BY cycle DESC
+        LIMIT 30
+    """, (engine_id,))
+
+    rows = cur.fetchall()
+    rows = list(reversed(rows))
+
+    if len(rows) < 30:
+        return {"error": "not enough data"}
+
+    # ✅ FIXED column names
+    window = []
+    for r in rows:
+        window.append([
+            r["sensor2"],
+            r["sensor3"],
+            r["sensor4"],
+            r["sensor7"],
+            r["sensor8"],
+            r["sensor9"],
+            r["sensor11"],
+            r["sensor12"],
+            r["sensor13"],
+            r["sensor14"],
+            r["sensor15"],
+            r["sensor17"],
+            r["sensor20"],
+            r["sensor21"],
+        ])
+
+    return {
+        "window": window,
+        "engine_id": engine_id,
+        "cycle": rows[-1]["cycle"],
+        "timestamp": datetime.utcnow().isoformat()
+    }

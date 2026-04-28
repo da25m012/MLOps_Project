@@ -8,7 +8,7 @@ import logging
 import os
 
 import requests
-from flask import Blueprint, jsonify, render_template
+from flask import Blueprint, jsonify, render_template, request
 from .metrics import backend_health_status, track_request
 
 logger = logging.getLogger(__name__)
@@ -104,10 +104,30 @@ def pipeline():
         training_err=training_err,
     )
 
+@bp.route("/api/predict", methods=["POST"])
+def api_predict():
+    try:
+        resp = requests.post(
+            f"{BACKEND_URL}/predict",
+            json=request.get_json(),
+            timeout=5,
+        )
+        resp.raise_for_status()
+        return jsonify(resp.json())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
 
 @bp.route("/manual")
 def manual():
     return render_template("manual.html")
+
+@bp.route("/api/latest-window")
+def api_latest_window():
+    data, err = _get_backend("/latest-window")
+    if err:
+        return jsonify({"error": err}), 502
+    return jsonify(data)
 
 
 # ── API proxy endpoints ────────────────────────────────────────────────────────

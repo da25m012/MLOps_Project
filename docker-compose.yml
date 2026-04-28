@@ -14,6 +14,8 @@ services:
       AIRFLOW_PASS: admin
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      - ./frontend:/app
     depends_on:
       - backend
     restart: unless-stopped
@@ -35,6 +37,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./ml:/app/ml
+      - ./backend:/app
     restart: unless-stopped
 
   # ── Prometheus ───────────────────────────────────────────────────────────────
@@ -75,6 +78,9 @@ services:
     environment:
       GF_SECURITY_ADMIN_PASSWORD: admin
       GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
     volumes:
       - grafana_data:/var/lib/grafana
       - ./monitoring/grafana/dashboard.json:/var/lib/grafana/dashboards/anomaly.json:ro
