@@ -3,40 +3,48 @@
 
 {% block content %}
 <h1>User Manual</h1>
-<p class="subtitle">How to use the Anomaly Detection System — no technical knowledge required.</p>
+<p class="subtitle">How to use the NASA CMAPSS Engine Anomaly Detection System — no technical knowledge required.</p>
 
 {% set sections = [
   {
     "title": "What does this system do?",
-    "content": "This system watches your server's health 24/7. It monitors four key metrics — CPU usage, memory usage, request rate, and error rate — and automatically alerts you when something unusual happens. Think of it as a security guard for your infrastructure."
+    "content": "This system monitors jet engine sensor data and automatically detects when an engine is behaving abnormally. It uses an AI model trained on NASA's CMAPSS dataset — real turbofan engine data — to learn what normal engine behaviour looks like, and flags any deviations as potential anomalies before they become failures."
+  },
+  {
+    "title": "What is the NASA CMAPSS dataset?",
+    "content": "CMAPSS stands for Commercial Modular Aero-Propulsion System Simulation. It is a NASA dataset containing sensor readings from 100 simulated jet engines recorded from start until failure. Each engine has 14 key sensor readings per cycle. The AI model was trained on healthy early-cycle data and flags late-cycle degradation as anomalous."
   },
   {
     "title": "Understanding the Dashboard",
-    "content": "The Dashboard page shows live metrics at the top (four number cards) and a history table below. Each row in the table represents one check performed every 5 minutes. The 'Severity' column tells you if anything was wrong."
+    "content": "The Dashboard page shows four key sensor readings at the top, the current Engine ID and Cycle number, the latest anomaly check result, and a history table of all recent checks. Each row in the table is one check performed every 30 seconds."
+  },
+  {
+    "title": "What do the sensor readings mean?",
+    "content": "Sensor 2 measures fan inlet temperature (°R). Sensor 4 measures LPC outlet temperature (°R). Sensor 11 measures HPC outlet temperature (°R). Sensor 12 measures HPC outlet pressure (psia). All 14 sensors are used internally by the AI — only 4 are shown on the dashboard for readability."
   },
   {
     "title": "What do the severity labels mean?",
-    "content": "NORMAL — everything is fine, the system is behaving as expected. LOW — a minor anomaly was detected; keep an eye on it but no immediate action needed. HIGH — a significant anomaly was detected; investigate your servers immediately."
+    "content": "NORMAL — the engine is behaving as expected, consistent with healthy early-cycle patterns. LOW — a minor anomaly was detected, the engine is showing slight deviation from normal behaviour. Monitor closely. HIGH — a significant anomaly was detected, the engine sensors show patterns similar to pre-failure behaviour. Investigate immediately."
   },
   {
     "title": "What is the Reconstruction Score?",
-    "content": "The score is a number produced by the AI model. A low score (close to 0) means the system is behaving normally. A high score means the system detected unusual patterns. The Threshold shown next to it is the cut-off — scores above it trigger an alert."
-  },
-  {
-    "title": "Understanding the ML Pipeline page",
-    "content": "The Pipeline page shows the health of the background data collection and AI training process. You can see how many data points have been collected, when data was last ingested, and which version of the AI model is currently running."
+    "content": "The AI model learns to reconstruct normal engine sensor patterns. The Reconstruction Score measures how different the current pattern is from what the model expects. A low score (close to 0) means the engine is behaving normally. A high score means the sensors show unusual patterns the model has not seen during normal operation."
   },
   {
     "title": "What should I do when I see a HIGH anomaly?",
-    "content": "1. Note the timestamp of the anomaly. 2. Check your server logs around that time. 3. Look at which metric (CPU, memory, etc.) is unusually high. 4. Contact your engineering team with this information. 5. Continue monitoring — if multiple HIGH alerts appear in a row, escalate immediately."
+    "content": "1. Note the Engine ID and Cycle number shown in the anomaly table. 2. Check which sensor readings appear unusual compared to normal values. 3. Cross-reference with maintenance logs for that engine. 4. Escalate to your engineering team immediately. 5. Continue monitoring — if multiple HIGH alerts appear consecutively, consider taking the engine offline for inspection."
+  },
+  {
+    "title": "Understanding the ML Pipeline page",
+    "content": "The Pipeline page shows how many engine cycle records have been ingested, when data was last processed, and which version of the AI model is currently active. It also shows the 7-stage pipeline from data ingestion through to monitoring, and links to MLflow and Airflow for detailed tracking."
   },
   {
     "title": "How often does the system check?",
-    "content": "The system collects data every 5 minutes automatically. The dashboard refreshes every 30 seconds. You do not need to do anything — the system runs in the background continuously."
+    "content": "The dashboard performs an anomaly check every 30 seconds automatically. New engine data is ingested from the NASA dataset every 5 minutes via the Airflow pipeline. You do not need to do anything — the system runs continuously in the background."
   },
   {
     "title": "Grafana monitoring panel",
-    "content": "The bottom of the Dashboard page shows a Grafana panel with real-time charts. If the panel appears blank, click the 'Open localhost:3000' link and log in with username admin and password admin. The charts show the same metrics in graph form over time."
+    "content": "The bottom of the Dashboard page shows a Grafana panel with real-time charts of the AI model's performance — reconstruction error over time, anomaly counts by severity, and inference latency. If the panel is blank, open localhost:3000 and log in with admin/admin."
   },
 ] %}
 
@@ -50,9 +58,24 @@
 <div class="card" style="border-color:var(--accent)">
   <div class="card-title">Quick reference — severity colours</div>
   <div style="display:flex;gap:1rem;flex-wrap:wrap">
-    <span class="badge badge-normal">NORMAL — system healthy</span>
+    <span class="badge badge-normal">NORMAL — engine healthy</span>
     <span class="badge badge-low">LOW — minor anomaly, monitor</span>
     <span class="badge badge-high">HIGH — significant anomaly, act now</span>
   </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Quick reference — service URLs</div>
+  <table>
+    <thead><tr><th>Service</th><th>URL</th><th>Credentials</th></tr></thead>
+    <tbody>
+      <tr><td>Dashboard</td><td>http://localhost:5000</td><td>—</td></tr>
+      <tr><td>API Docs</td><td>http://localhost:8000/docs</td><td>—</td></tr>
+      <tr><td>MLflow</td><td>http://localhost:5001</td><td>—</td></tr>
+      <tr><td>Airflow</td><td>http://localhost:8080</td><td>admin / admin</td></tr>
+      <tr><td>Grafana</td><td>http://localhost:3000</td><td>admin / admin</td></tr>
+      <tr><td>Prometheus</td><td>http://localhost:9090</td><td>—</td></tr>
+    </tbody>
+  </table>
 </div>
 {% endblock %}

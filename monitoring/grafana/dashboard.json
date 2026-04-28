@@ -1,8 +1,8 @@
 {
   "id": null,
   "uid": "anomaly",
-  "title": "Anomaly Detection",
-  "tags": ["mlops", "anomaly"],
+  "title": "NASA CMAPSS Anomaly Detection",
+  "tags": ["mlops", "anomaly", "nasa"],
   "timezone": "browser",
   "refresh": "30s",
   "schemaVersion": 39,
@@ -32,7 +32,7 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "Anomalies (HIGH) — Total",
+      "title": "HIGH Severity Anomalies",
       "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
       "targets": [{
         "expr": "anomaly_detections_total{severity=\"high\"}",
@@ -53,8 +53,39 @@
     {
       "id": 5,
       "type": "timeseries",
+      "title": "Reconstruction Error over Time (Anomaly Score)",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 4},
+      "targets": [{
+        "expr": "model_reconstruction_error",
+        "legendFormat": "reconstruction error"
+      }],
+      "fieldConfig": {"defaults": {"custom": {"lineWidth": 2}}}
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Anomaly Detections by Severity",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+      "targets": [
+        {
+          "expr": "rate(anomaly_detections_total{severity=\"high\"}[5m])",
+          "legendFormat": "high/min"
+        },
+        {
+          "expr": "rate(anomaly_detections_total{severity=\"low\"}[5m])",
+          "legendFormat": "low/min"
+        },
+        {
+          "expr": "rate(anomaly_detections_total{severity=\"normal\"}[5m])",
+          "legendFormat": "normal/min"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
       "title": "Inference Latency over Time",
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
       "targets": [
         {
           "expr": "rate(inference_latency_seconds_sum[5m]) / rate(inference_latency_seconds_count[5m])",
@@ -68,29 +99,23 @@
       "fieldConfig": {"defaults": {"unit": "s"}}
     },
     {
-      "id": 6,
+      "id": 8,
       "type": "timeseries",
-      "title": "Anomaly Detections by Severity",
-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
-      "targets": [
-        {
-          "expr": "rate(anomaly_detections_total{severity=\"high\"}[5m])",
-          "legendFormat": "high/min"
-        },
-        {
-          "expr": "rate(anomaly_detections_total{severity=\"low\"}[5m])",
-          "legendFormat": "low/min"
-        }
-      ]
+      "title": "Active Inference Requests",
+      "gridPos": {"h": 6, "w": 12, "x": 0, "y": 20},
+      "targets": [{
+        "expr": "active_requests",
+        "legendFormat": "active requests"
+      }]
     },
     {
-      "id": 7,
-      "type": "timeseries",
-      "title": "Reconstruction Error over Time",
-      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 12},
+      "id": 9,
+      "type": "stat",
+      "title": "LOW Severity Anomalies",
+      "gridPos": {"h": 6, "w": 12, "x": 12, "y": 20},
       "targets": [{
-        "expr": "model_reconstruction_error",
-        "legendFormat": "reconstruction error"
+        "expr": "anomaly_detections_total{severity=\"low\"}",
+        "legendFormat": "low anomalies"
       }]
     }
   ]

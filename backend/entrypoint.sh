@@ -1,9 +1,7 @@
 #!/bin/bash
 set -e
 
-DB_PATH="${DB_PATH:-/app/data/metrics.db}"
-
-python - <<'EOF'
+python - <<'PYEOF'
 import sqlite3, os
 db = os.environ.get("DB_PATH", "/app/data/metrics.db")
 os.makedirs(os.path.dirname(db), exist_ok=True)
@@ -27,6 +25,9 @@ CREATE TABLE IF NOT EXISTS anomaly_results (
 """)
 conn.close()
 print("Database initialized.")
-EOF
+PYEOF
+
+# Make all app modules importable
+export PYTHONPATH="/app/app:/app/ml:${PYTHONPATH}"
 
 exec uvicorn app.main:app --host 0.0.0.0 --port 8000

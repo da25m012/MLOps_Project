@@ -12,12 +12,13 @@ scrape_configs:
       - targets: ["localhost:9090"]
 
   # Scrape FastAPI backend instrumentation
+  # Tracks inference requests, latency, anomaly counts, reconstruction error
   - job_name: anomaly_backend
     static_configs:
       - targets: ["backend:8000"]
     metrics_path: /metrics
 
-  # Scrape node exporter for host-level CPU / memory
+  # Node exporter for host-level system metrics (optional monitoring)
   - job_name: node_exporter
     static_configs:
       - targets: ["node-exporter:9100"]

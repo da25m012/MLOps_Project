@@ -1,18 +1,28 @@
-# Multivariate Log Anomaly Detection System
+# NASA CMAPSS Jet Engine Anomaly Detection System
 
-An end-to-end MLOps project that detects infrastructure anomalies using an LSTM Autoencoder trained on Prometheus system metrics.
+An end-to-end MLOps project that detects jet engine anomalies using an LSTM Autoencoder trained on NASA's CMAPSS FD001 turbofan engine dataset.
 
 ## Architecture
 
 ```
-Prometheus → Airflow DAG → SQLite/CSV → DVC → LSTM Autoencoder (MLflow)
-                                                       ↓
+test_FD001.txt → Airflow DAG (batch ingestion) → SQLite (nasa_metrics)
+                                                        ↓
+                                          LSTM Autoencoder (MLflow)
+                                                        ↓
                                                FastAPI (/predict)
-                                                       ↓
+                                                        ↓
                                                Flask Dashboard
-                                                       ↓
-                                         Prometheus + Grafana (monitoring)
+                                                        ↓
+                                     Prometheus + Grafana (monitoring)
 ```
+
+## Dataset
+
+NASA CMAPSS (Commercial Modular Aero-Propulsion System Simulation) FD001 subset:
+- 100 training engines, 100 test engines
+- 21 sensors per cycle → 14 informative sensors selected
+- Training: early cycles (cycle ≤ 125) = normal behaviour
+- Anomaly: late cycles (near failure) = high reconstruction error
 
 ## Tech Stack
 
@@ -29,9 +39,10 @@ Prometheus → Airflow DAG → SQLite/CSV → DVC → LSTM Autoencoder (MLflow)
 
 ## Prerequisites
 
-- Docker and Docker Compose installed
-- Python 3.10+ (for running training locally)
+- Docker and Docker Compose
+- Python 3.10+
 - Git and DVC (`pip install dvc`)
+- NASA CMAPSS FD001 files: `train_FD001.txt`, `test_FD001.txt` in `data/raw/`
 
 ## Quick Start
 
@@ -39,7 +50,7 @@ Prometheus → Airflow DAG → SQLite/CSV → DVC → LSTM Autoencoder (MLflow)
 
 ```bash
 git clone <your-repo-url>
-cd anomaly-detection
+cd MLOps_project
 git init
 dvc init
 ```
@@ -50,105 +61,81 @@ dvc init
 docker compose up -d
 ```
 
-This starts:
+Services started:
 - Flask frontend   → http://localhost:5000
 - FastAPI backend  → http://localhost:8000
-- MLflow UI        → http://localhost:5001
 - Prometheus       → http://localhost:9090
-- Grafana          → http://localhost:3000  (admin / admin)
+- Grafana          → http://localhost:3000  (admin/admin)
 
-### 3. Start Airflow (separate compose)
+### 3. Start MLflow locally
+
+```bash
+mlflow server --host 0.0.0.0 --port 5001 \
+  --backend-store-uri sqlite:///mlflow_local.db \
+  --default-artifact-root mlflow-artifacts:/ \
+  --artifacts-destination ./mlruns \
+  --serve-artifacts &
+```
+
+MLflow UI → http://localhost:5001
+
+### 4. Start Airflow
 
 ```bash
 cd airflow
 docker compose -f docker-compose.airflow.yml up -d
 ```
 
-Airflow UI → http://localhost:8080  
-The `ingest_prometheus_metrics` DAG runs every 5 minutes automatically.
+Airflow UI → http://localhost:8080 (admin/admin)
+Enable the `ingest_nasa_cmapss` DAG — it reads `test_FD001.txt` in batches every 5 minutes.
 
-### 4. Train the model
-
-Wait for at least a few hours of data collection (or seed with synthetic data), then:
+### 5. Train the model
 
 ```bash
-# Run preprocessing + training via DVC
-dvc repro
-
-# Or run training directly
 cd ml
-pip install -r ../backend/requirements.txt
-python train.py
+CUDA_VISIBLE_DEVICES="" MLFLOW_TRACKING_URI=http://localhost:5001 python3 train.py
 ```
 
-Training logs metrics to MLflow. After training completes, the model is registered and the backend will load it automatically on next restart.
-
-### 5. Verify everything works
+### 6. Restart backend to load trained model
 
 ```bash
-# Backend health check
+cd ..
+docker compose restart backend
 curl http://localhost:8000/health
-
-# Run a test prediction (60 rows × 4 features)
-curl -X POST http://localhost:8000/predict \
-  -H "Content-Type: application/json" \
-  -d '{"window": [[45.0, 60.0, 120.0, 0.02]] }'
-
-# Check Prometheus metrics
-curl http://localhost:8000/metrics
 ```
 
-### 6. Run unit tests
+### 7. Run unit tests
 
 ```bash
 cd backend
-pip install -r requirements.txt
+pip install pytest httpx
 pytest tests/ -v
-```
-
-## DVC Workflow
-
-```bash
-# Track new raw data files
-dvc add data/raw/
-
-# Run the full pipeline
-dvc repro
-
-# Show pipeline DAG
-dvc dag
-
-# Push data to remote (configure remote first)
-dvc push
-```
-
-## Project Structure
-
-```
-anomaly-detection/
-├── airflow/          # Airflow DAGs and config
-├── backend/          # FastAPI inference engine
-│   ├── app/          # main.py, model.py, schemas.py, metrics.py
-│   └── tests/        # unit tests
-├── frontend/         # Flask UI (dashboard, pipeline, manual)
-├── ml/               # LSTM model, training, preprocessing
-├── monitoring/       # Prometheus + Grafana config
-├── data/             # DVC-tracked (gitignored)
-├── docs/             # HLD, LLD, architecture, test plan, user manual
-├── docker-compose.yml
-└── dvc.yaml
 ```
 
 ## API Endpoints
 
-| Method | Endpoint           | Description                        |
-|--------|--------------------|------------------------------------|
-| POST   | /predict           | Run anomaly detection on a window  |
-| GET    | /health            | Model load status                  |
-| GET    | /ready             | Orchestration readiness probe      |
-| POST   | /drift             | Data drift detection               |
-| GET    | /pipeline/status   | Pipeline stats for UI              |
-| GET    | /metrics           | Prometheus scrape endpoint         |
+| Method | Endpoint           | Description                              |
+|--------|--------------------|------------------------------------------|
+| POST   | /predict           | Anomaly detection on a 30×14 sensor window |
+| GET    | /health            | Model load status                        |
+| GET    | /ready             | Orchestration readiness probe            |
+| POST   | /drift             | Data drift detection vs training baseline |
+| GET    | /pipeline/status   | Pipeline stats for UI                    |
+| GET    | /metrics           | Prometheus scrape endpoint               |
+
+## Input Format
+
+```json
+{
+  "window": [[sensor2, sensor3, sensor4, sensor7, sensor8, sensor9,
+               sensor11, sensor12, sensor13, sensor14, sensor15,
+               sensor17, sensor20, sensor21], ...],
+  "engine_id": 42,
+  "cycle": 150
+}
+```
+
+Window shape: (30, 14) — 30 engine cycles × 14 sensors.
 
 ## Anomaly Severity
 
@@ -158,4 +145,4 @@ anomaly-detection/
 | low      | threshold < error ≤ 2 × threshold          |
 | high     | error > 2 × threshold                      |
 
-Threshold is set at the 95th percentile of reconstruction errors on training data.
+Threshold is set at the 95th percentile of reconstruction errors on normal training cycles.

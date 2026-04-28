@@ -15,34 +15,21 @@ services:
 
   # ── Backend (FastAPI + LSTM model) ──────────────────────────────────────────
   backend:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     ports:
       - "8000:8000"
     environment:
-      MLFLOW_TRACKING_URI: http://mlflow:5001
+      MLFLOW_TRACKING_URI: http://host.docker.internal:5001
       REGISTERED_MODEL_NAME: lstm_autoencoder
       DB_PATH: /app/data/metrics.db
       PROCESSED_DIR: /app/data/processed
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./data:/app/data
       - ./ml:/app/ml
-    depends_on:
-      - mlflow
-    restart: unless-stopped
-
-  # ── MLflow tracking server ───────────────────────────────────────────────────
-  mlflow:
-    image: ghcr.io/mlflow/mlflow:v2.12.1
-    ports:
-      - "5001:5001"
-    command: >
-      mlflow server
-        --host 0.0.0.0
-        --port 5001
-        --backend-store-uri sqlite:///mlflow.db
-        --default-artifact-root /mlflow/artifacts
-    volumes:
-      - mlflow_data:/mlflow
     restart: unless-stopped
 
   # ── Prometheus ───────────────────────────────────────────────────────────────
@@ -59,7 +46,7 @@ services:
       - --web.enable-lifecycle
     restart: unless-stopped
 
-  # ── Node Exporter (host CPU / memory metrics for Prometheus) ─────────────────
+  # ── Node Exporter ─────────────────────────────────────────────────────────────
   node-exporter:
     image: prom/node-exporter:v1.8.0
     ports:
@@ -90,7 +77,7 @@ services:
       - prometheus
     restart: unless-stopped
 
+# FIX 3: Removed dangling mlflow_data volume — MLflow runs locally, not in Docker
 volumes:
-  mlflow_data:
   prometheus_data:
   grafana_data:

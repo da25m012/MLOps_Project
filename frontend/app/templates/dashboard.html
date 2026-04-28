@@ -3,29 +3,43 @@
 
 {% block content %}
 <h1>Live Dashboard</h1>
-<p class="subtitle">Real-time system metrics and anomaly detections. Refreshes every 30 seconds.</p>
+<p class="subtitle">NASA CMAPSS Engine Sensor Anomaly Detection. Refreshes every 30 seconds.</p>
 
-<!-- Stat cards -->
+<!-- Stat cards — 4 key sensors -->
 <div class="grid-4" style="margin-bottom:1.5rem">
   <div class="stat-card">
-    <div class="stat-label">CPU Usage</div>
-    <div class="stat-value" id="stat-cpu">—</div>
-    <div class="stat-sub">%</div>
+    <div class="stat-label">Sensor 2 (Fan Inlet Temp)</div>
+    <div class="stat-value" id="stat-s2">—</div>
+    <div class="stat-sub">°R</div>
   </div>
   <div class="stat-card">
-    <div class="stat-label">Memory Usage</div>
-    <div class="stat-value" id="stat-mem">—</div>
-    <div class="stat-sub">%</div>
+    <div class="stat-label">Sensor 4 (LPC Outlet Temp)</div>
+    <div class="stat-value" id="stat-s4">—</div>
+    <div class="stat-sub">°R</div>
   </div>
   <div class="stat-card">
-    <div class="stat-label">Request Rate</div>
-    <div class="stat-value" id="stat-req">—</div>
-    <div class="stat-sub">req/s</div>
+    <div class="stat-label">Sensor 11 (HPC Outlet Temp)</div>
+    <div class="stat-value" id="stat-s11">—</div>
+    <div class="stat-sub">°R</div>
   </div>
   <div class="stat-card">
-    <div class="stat-label">Error Rate</div>
-    <div class="stat-value" id="stat-err">—</div>
-    <div class="stat-sub">%</div>
+    <div class="stat-label">Sensor 12 (HPC Outlet Pressure)</div>
+    <div class="stat-value" id="stat-s12">—</div>
+    <div class="stat-sub">psia</div>
+  </div>
+</div>
+
+<!-- Engine info -->
+<div class="grid-2" style="margin-bottom:1.5rem">
+  <div class="stat-card">
+    <div class="stat-label">Engine ID</div>
+    <div class="stat-value" id="stat-engine">—</div>
+    <div class="stat-sub">current engine</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Cycle</div>
+    <div class="stat-value" id="stat-cycle">—</div>
+    <div class="stat-sub">engine cycle</div>
   </div>
 </div>
 
@@ -53,23 +67,25 @@
     <thead>
       <tr>
         <th>Timestamp</th>
-        <th>CPU %</th>
-        <th>Memory %</th>
-        <th>Req/s</th>
-        <th>Error %</th>
+        <th>Engine</th>
+        <th>Cycle</th>
+        <th>Sensor2</th>
+        <th>Sensor4</th>
+        <th>Sensor11</th>
+        <th>Sensor12</th>
         <th>Score</th>
         <th>Severity</th>
       </tr>
     </thead>
     <tbody id="anomaly-table-body">
-      <tr><td colspan="7" style="color:var(--muted);text-align:center;padding:2rem">Loading...</td></tr>
+      <tr><td colspan="9" style="color:var(--muted);text-align:center;padding:2rem">Loading...</td></tr>
     </tbody>
   </table>
 </div>
 
 <!-- Grafana iframe -->
 <div class="card">
-  <div class="card-title">Grafana — Prometheus Metrics (Near Real-Time)</div>
+  <div class="card-title">Grafana — Model Metrics (Near Real-Time)</div>
   <iframe
     src="http://localhost:3000/d/anomaly/anomaly-detection?orgId=1&refresh=30s&kiosk=tv"
     width="100%" height="400"
@@ -84,38 +100,48 @@
 
 {% block scripts %}
 <script>
-const BACKEND = '';   // proxied through Flask /api/*
-const history = [];   // local ring buffer for table
+const history = [];
 
-// Simulate or fetch latest metric window (60 rows × 4 cols)
-function makeWindow(cpu, mem, req, err) {
-  return Array.from({length: 60}, () => [
-    cpu + (Math.random() - 0.5) * 2,
-    mem + (Math.random() - 0.5) * 2,
-    req + (Math.random() - 0.5) * 5,
-    err + (Math.random() - 0.5) * 0.002,
-  ]);
+// 14 sensor values — simulate realistic CMAPSS ranges
+function getLiveSensors() {
+  return {
+    s2:  +(641 + Math.random() * 2).toFixed(2),
+    s3:  +(1589 + Math.random() * 5).toFixed(2),
+    s4:  +(1400 + Math.random() * 10).toFixed(2),
+    s7:  +(554 + Math.random() * 3).toFixed(2),
+    s8:  +(2388 + Math.random() * 5).toFixed(2),
+    s9:  +(9065 + Math.random() * 20).toFixed(2),
+    s11: +(47 + Math.random() * 2).toFixed(2),
+    s12: +(521 + Math.random() * 5).toFixed(2),
+    s13: +(2388 + Math.random() * 5).toFixed(2),
+    s14: +(8138 + Math.random() * 20).toFixed(2),
+    s15: +(8.44 + Math.random() * 0.05).toFixed(4),
+    s17: +(392 + Math.random() * 3).toFixed(2),
+    s20: +(38.8 + Math.random() * 0.5).toFixed(2),
+    s21: +(23 + Math.random() * 0.5).toFixed(2),
+    engine_id: Math.floor(Math.random() * 100) + 1,
+    cycle: Math.floor(Math.random() * 200) + 1,
+  };
 }
 
-// Simulated live metric values (replace with real Prometheus scrape if desired)
-function getLiveMetrics() {
-  return {
-    cpu:  40 + Math.random() * 20,
-    mem:  55 + Math.random() * 15,
-    req:  120 + Math.random() * 30,
-    err:  0.02 + Math.random() * 0.03,
-  };
+function makeWindow(s) {
+  const vals = [s.s2,s.s3,s.s4,s.s7,s.s8,s.s9,s.s11,s.s12,s.s13,s.s14,s.s15,s.s17,s.s20,s.s21];
+  return Array.from({length: 30}, () =>
+    vals.map(v => v + (Math.random() - 0.5) * v * 0.01)
+  );
 }
 
 function severityBadge(s) {
   return `<span class="badge badge-${s}">${s.toUpperCase()}</span>`;
 }
 
-function updateStatCards(m) {
-  document.getElementById('stat-cpu').textContent = m.cpu.toFixed(1);
-  document.getElementById('stat-mem').textContent = m.mem.toFixed(1);
-  document.getElementById('stat-req').textContent = m.req.toFixed(0);
-  document.getElementById('stat-err').textContent = (m.err * 100).toFixed(2);
+function updateStatCards(s) {
+  document.getElementById('stat-s2').textContent = s.s2;
+  document.getElementById('stat-s4').textContent = s.s4;
+  document.getElementById('stat-s11').textContent = s.s11;
+  document.getElementById('stat-s12').textContent = s.s12;
+  document.getElementById('stat-engine').textContent = s.engine_id;
+  document.getElementById('stat-cycle').textContent = s.cycle;
 }
 
 function updateTable() {
@@ -124,10 +150,12 @@ function updateTable() {
   tbody.innerHTML = history.slice(-50).reverse().map(r => `
     <tr>
       <td style="color:var(--muted);font-size:0.8rem">${r.ts}</td>
-      <td>${r.cpu.toFixed(1)}</td>
-      <td>${r.mem.toFixed(1)}</td>
-      <td>${r.req.toFixed(0)}</td>
-      <td>${(r.err*100).toFixed(2)}</td>
+      <td>${r.engine_id}</td>
+      <td>${r.cycle}</td>
+      <td>${r.s2}</td>
+      <td>${r.s4}</td>
+      <td>${r.s11}</td>
+      <td>${r.s12}</td>
       <td>${r.score.toFixed(5)}</td>
       <td>${severityBadge(r.severity)}</td>
     </tr>
@@ -138,20 +166,21 @@ async function runCheck() {
   const spinner = document.getElementById('latest-spinner');
   spinner.style.display = 'inline-block';
 
-  const m = getLiveMetrics();
-  updateStatCards(m);
+  const s = getLiveSensors();
+  updateStatCards(s);
 
   try {
-    const resp = await fetch('/predict', {
+    const resp = await fetch('http://localhost:8000/predict', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
-        window: makeWindow(m.cpu, m.mem, m.req, m.err),
+        window: makeWindow(s),
         timestamp: new Date().toISOString(),
+        engine_id: s.engine_id,
+        cycle: s.cycle,
       }),
     });
 
-    // If backend not yet up, show placeholder
     if (!resp.ok) throw new Error('backend not ready');
     const d = await resp.json();
 
@@ -161,35 +190,20 @@ async function runCheck() {
 
     history.push({
       ts: new Date().toLocaleTimeString(),
-      cpu: m.cpu, mem: m.mem, req: m.req, err: m.err,
+      engine_id: s.engine_id, cycle: s.cycle,
+      s2: s.s2, s4: s.s4, s11: s.s11, s12: s.s12,
       score: d.score, severity: d.severity,
     });
     updateTable();
   } catch (e) {
-    document.getElementById('latest-severity').innerHTML = '<span style="color:var(--muted)">backend offline</span>';
+    document.getElementById('latest-severity').innerHTML =
+      '<span style="color:var(--muted)">backend offline</span>';
   } finally {
     spinner.style.display = 'none';
   }
 }
 
-// Predict endpoint is on backend port 8000 but proxied via Flask
-// Flask doesn't proxy /predict — direct call to backend when in same docker network
-// For demo, we call backend directly from browser:
-async function initPredict() {
-  // Try direct backend call
-  try {
-    const r = await fetch('http://localhost:8000/ready');
-    const d = await r.json();
-    if (d.ready) {
-      // Override fetch to go direct
-      window._predictUrl = 'http://localhost:8000/predict';
-    }
-  } catch { window._predictUrl = null; }
-}
-
-initPredict().then(() => {
-  runCheck();
-  setInterval(runCheck, 30000);
-});
+runCheck();
+setInterval(runCheck, 30000);
 </script>
 {% endblock %}

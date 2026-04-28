@@ -3,7 +3,7 @@ stages:
     cmd: python ml/preprocess.py
     deps:
       - ml/preprocess.py
-      - data/raw
+      - data/raw/train_FD001.txt
     outs:
       - data/processed/windows.npy
       - data/processed/scaler.joblib
@@ -19,9 +19,6 @@ stages:
       - data/processed/scaler.joblib
     outs:
       - data/processed/threshold.txt
-    params:
-      - ml/train.py:
-          - HPARAMS
 
   evaluate:
     cmd: python ml/evaluate.py

@@ -11,6 +11,7 @@ x-airflow-common: &airflow-common
     PROMETHEUS_URL: http://prometheus:9090
     DB_PATH: /app/data/metrics.db
     RAW_DIR: /app/data/raw
+    _PIP_ADDITIONAL_REQUIREMENTS: "requests==2.31.0"
   volumes:
     - ./dags:/opt/airflow/dags
     - airflow_logs:/opt/airflow/logs
@@ -27,10 +28,17 @@ services:
       POSTGRES_DB: airflow
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      retries: 5
 
   airflow-init:
     <<: *airflow-common
-    command: db init
+    command: db migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   airflow-webserver:
     <<: *airflow-common
@@ -38,13 +46,24 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      - airflow-init
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
 
   airflow-scheduler:
     <<: *airflow-common
     command: scheduler
     depends_on:
-      - airflow-init
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
 
 volumes:
   postgres_data:

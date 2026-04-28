@@ -1,18 +1,11 @@
 """
 FastAPI backend — inference engine.
-Endpoints:
-  POST /predict          → run anomaly detection on a metric window
-  GET  /health           → model load status
-  GET  /ready            → orchestration readiness check
-  POST /drift            → check for data drift vs baseline
-  GET  /pipeline/status  → pipeline stats for Flask pipeline visualization screen
-  GET  /metrics          → Prometheus scrape endpoint
 """
 
-import json
 import logging
 import os
 import sqlite3
+import sys
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
@@ -21,7 +14,13 @@ import numpy as np
 from fastapi import FastAPI, Request
 from fastapi.responses import Response
 
-import model as model_loader
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_ML_DIR = "/app/ml"
+for _p in [_HERE, _ML_DIR]:
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+import model_loader
 from exceptions import (
     InvalidWindowError,
     ModelNotReadyError,
@@ -47,16 +46,19 @@ from schemas import (
     ReadyResponse,
 )
 
+# FIX 10: import evaluate at startup so errors surface immediately
+from evaluate import detect_drift  # noqa: E402
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-DB_PATH = os.environ.get("DB_PATH", "/app/data/metrics.db")
-PROCESSED_DIR = os.environ.get("PROCESSED_DIR", "/app/data/processed")
-SEQ_LEN = 60
-FEATURES = ["cpu_usage", "memory_usage", "request_rate", "error_rate"]
+_DEFAULT_DATA_DIR = os.path.normpath(os.path.join(_HERE, "..", "..", "..", "data"))
+DB_PATH = os.environ.get("DB_PATH", os.path.join(_DEFAULT_DATA_DIR, "metrics.db"))
+PROCESSED_DIR = os.environ.get("PROCESSED_DIR", os.path.join(_DEFAULT_DATA_DIR, "processed"))
 
+SEQ_LEN = 30
+FEATURES = ["sensor2","sensor3","sensor4","sensor7","sensor8","sensor9","sensor11","sensor12","sensor13","sensor14","sensor15","sensor17","sensor20","sensor21"]
 
-# ── Startup / shutdown ────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -68,18 +70,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Anomaly Detection API",
-    description="LSTM Autoencoder inference backend for multivariate log anomaly detection.",
+    description="LSTM Autoencoder inference backend.",
     version="1.0.0",
     lifespan=lifespan,
 )
 
-# Register exception handlers
 app.add_exception_handler(ModelNotReadyError, model_not_ready_handler)
 app.add_exception_handler(InvalidWindowError, invalid_window_handler)
 app.add_exception_handler(Exception, generic_exception_handler)
 
-
-# ── Helper ────────────────────────────────────────────────────────────────────
 
 def validate_window(window: list):
     if len(window) != SEQ_LEN:
@@ -90,19 +89,31 @@ def validate_window(window: list):
 
 
 def get_db():
-    return sqlite3.connect(DB_PATH)
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    # FIX 8: Add UNIQUE constraint on timestamp so INSERT OR IGNORE works correctly
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS metrics (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL UNIQUE,
+            cpu_usage     REAL,
+            memory_usage  REAL,
+            request_rate  REAL,
+            error_rate    REAL
+        );
+        CREATE TABLE IF NOT EXISTS anomaly_results (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp  TEXT NOT NULL UNIQUE,
+            is_anomaly INTEGER NOT NULL,
+            severity   TEXT NOT NULL,
+            score      REAL NOT NULL
+        );
+    """)
+    return conn
 
 
-# ── Endpoints ─────────────────────────────────────────────────────────────────
-
-@app.post("/predict", response_model=AnomalyResult, summary="Run anomaly detection")
+@app.post("/predict", response_model=AnomalyResult)
 async def predict(payload: MetricWindow):
-    """
-    Accepts a window of raw system metrics and returns anomaly classification.
-
-    - **window**: 2D list of shape (60, 4) — [cpu, memory, req_rate, error_rate]
-    - **timestamp**: optional ISO timestamp of the last data point
-    """
     if not model_loader.is_ready():
         raise ModelNotReadyError("Model is not loaded. Check /health for details.")
 
@@ -122,14 +133,12 @@ async def predict(payload: MetricWindow):
     model_reconstruction_error.set(result["score"])
     anomaly_detections_total.labels(severity=result["severity"]).inc()
 
-    # Persist result to SQLite
     try:
         with get_db() as conn:
             conn.execute(
-                """INSERT OR IGNORE INTO anomaly_results
-                   (timestamp, is_anomaly, severity, score) VALUES (?, ?, ?, ?)""",
-                (payload.timestamp or datetime.utcnow().isoformat(), result["is_anomaly"],
-                 result["severity"], result["score"]),
+                "INSERT OR IGNORE INTO anomaly_results (timestamp, is_anomaly, severity, score) VALUES (?, ?, ?, ?)",
+                (payload.timestamp or datetime.utcnow().isoformat(),
+                 result["is_anomaly"], result["severity"], result["score"]),
             )
     except Exception as e:
         logger.warning(f"Failed to persist result to DB: {e}")
@@ -143,9 +152,8 @@ async def predict(payload: MetricWindow):
     )
 
 
-@app.get("/health", response_model=HealthResponse, summary="Model health check")
+@app.get("/health", response_model=HealthResponse)
 async def health():
-    """Returns model load status and MLflow run ID."""
     return HealthResponse(
         status="ok" if model_loader.is_ready() else "degraded",
         model_loaded=model_loader.is_ready(),
@@ -153,20 +161,15 @@ async def health():
     )
 
 
-@app.get("/ready", response_model=ReadyResponse, summary="Readiness probe")
+@app.get("/ready", response_model=ReadyResponse)
 async def ready():
-    """Used by Docker/orchestrators to check if the service is ready to accept traffic."""
     if model_loader.is_ready():
         return ReadyResponse(ready=True, detail="Model loaded and ready.")
     return ReadyResponse(ready=False, detail="Model not yet loaded.")
 
 
-@app.post("/drift", response_model=DriftResponse, summary="Data drift detection")
+@app.post("/drift", response_model=DriftResponse)
 async def drift(payload: MetricWindow):
-    """
-    Computes per-feature statistics on the provided window and
-    compares them against the training baseline to detect drift.
-    """
     validate_window(payload.window)
     arr = np.array(payload.window)
     live_stats = {
@@ -174,7 +177,6 @@ async def drift(payload: MetricWindow):
         for i, feat in enumerate(FEATURES)
     }
 
-    from evaluate import detect_drift
     report = detect_drift(live_stats)
 
     drift_reports = [
@@ -194,36 +196,26 @@ async def drift(payload: MetricWindow):
     )
 
 
-@app.get("/pipeline/status", response_model=PipelineStatus, summary="ML pipeline status")
+@app.get("/pipeline/status", response_model=PipelineStatus)
 async def pipeline_status():
-    """
-    Returns pipeline metadata for the Flask pipeline visualization screen.
-    Reads from SQLite and the processed/ artifacts.
-    """
     status = PipelineStatus()
-
     try:
         with get_db() as conn:
-            row = conn.execute(
-                "SELECT MAX(timestamp), COUNT(*) FROM metrics"
-            ).fetchone()
+            row = conn.execute("SELECT MAX(timestamp), COUNT(*) FROM metrics").fetchone()
             if row:
                 status.last_ingestion = row[0]
                 status.total_rows_ingested = row[1] or 0
-
             cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
             anomaly_row = conn.execute(
-                "SELECT COUNT(*) FROM anomaly_results WHERE is_anomaly=1 AND timestamp >= ?",
-                (cutoff,)
+                "SELECT COUNT(*) FROM anomaly_results WHERE is_anomaly=1 AND timestamp >= ?", (cutoff,)
             ).fetchone()
             total_row = conn.execute(
-                "SELECT COUNT(*) FROM anomaly_results WHERE timestamp >= ?",
-                (cutoff,)
+                "SELECT COUNT(*) FROM anomaly_results WHERE timestamp >= ?", (cutoff,)
             ).fetchone()
             if total_row and total_row[0]:
                 status.anomaly_rate_24h = round((anomaly_row[0] or 0) / total_row[0], 4)
     except Exception as e:
-        logger.warning(f"DB read failed for pipeline/status: {e}")
+        logger.warning(f"DB read failed: {e}")
 
     threshold_path = os.path.join(PROCESSED_DIR, "threshold.txt")
     if os.path.exists(threshold_path):
@@ -236,8 +228,7 @@ async def pipeline_status():
     return status
 
 
-@app.get("/metrics", summary="Prometheus metrics")
+@app.get("/metrics")
 async def metrics():
-    """Prometheus scrape endpoint — exposes instrumentation counters and gauges."""
     data, content_type = get_metrics()
     return Response(content=data, media_type=content_type)

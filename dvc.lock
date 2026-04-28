@@ -1,0 +1,81 @@
+schema: '2.0'
+stages:
+  preprocess:
+    cmd: python ml/preprocess.py
+    deps:
+    - path: data/raw/train_FD001.txt
+      hash: md5
+      md5: 259f340bac32ce6fa8894815600fa757
+      size: 3515356
+    - path: ml/preprocess.py
+      hash: md5
+      md5: 3945a897411f56ac5936eadfe1b59125
+      size: 5447
+    outs:
+    - path: data/processed/drift_baseline.json
+      hash: md5
+      md5: ebf500d8d1936fe53b2ebd8d57ad1aee
+      size: 2178
+      isexec: true
+    - path: data/processed/scaler.joblib
+      hash: md5
+      md5: 1a18172830c6386096d8285f0c784f84
+      size: 1623
+      isexec: true
+    - path: data/processed/windows.npy
+      hash: md5
+      md5: 3867fd23cc6cd690dbfc8512f9cd5773
+      size: 16128128
+      isexec: true
+  train:
+    cmd: python ml/train.py
+    deps:
+    - path: data/processed/scaler.joblib
+      hash: md5
+      md5: 1a18172830c6386096d8285f0c784f84
+      size: 1623
+      isexec: true
+    - path: data/processed/windows.npy
+      hash: md5
+      md5: 3867fd23cc6cd690dbfc8512f9cd5773
+      size: 16128128
+      isexec: true
+    - path: ml/evaluate.py
+      hash: md5
+      md5: 2956526f21e6bb43628e99f07654e836
+      size: 3994
+    - path: ml/model.py
+      hash: md5
+      md5: a6c1f26476436ffaedf61424c7615ca5
+      size: 2328
+    - path: ml/train.py
+      hash: md5
+      md5: 282605651de1639dbd75115334da6e22
+      size: 6181
+    outs:
+    - path: data/processed/threshold.txt
+      hash: md5
+      md5: e29509a3583781caed0973eb74b13e03
+      size: 20
+      isexec: true
+  evaluate:
+    cmd: python ml/evaluate.py
+    deps:
+    - path: data/processed/threshold.txt
+      hash: md5
+      md5: e29509a3583781caed0973eb74b13e03
+      size: 20
+      isexec: true
+    - path: data/processed/windows.npy
+      hash: md5
+      md5: 3867fd23cc6cd690dbfc8512f9cd5773
+      size: 16128128
+      isexec: true
+    - path: ml/evaluate.py
+      hash: md5
+      md5: 2956526f21e6bb43628e99f07654e836
+      size: 3994
+    - path: ml/model.py
+      hash: md5
+      md5: a6c1f26476436ffaedf61424c7615ca5
+      size: 2328

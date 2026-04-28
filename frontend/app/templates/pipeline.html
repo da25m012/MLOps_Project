@@ -3,7 +3,7 @@
 
 {% block content %}
 <h1>ML Pipeline</h1>
-<p class="subtitle">Live view of the end-to-end MLOps pipeline — ingestion → training → deployment.</p>
+<p class="subtitle">End-to-end MLOps pipeline — NASA CMAPSS FD001 ingestion → LSTM training → deployment.</p>
 
 <!-- Pipeline status cards -->
 {% if status %}
@@ -11,7 +11,7 @@
   <div class="stat-card">
     <div class="stat-label">Rows Ingested</div>
     <div class="stat-value">{{ status.total_rows_ingested or '—' }}</div>
-    <div class="stat-sub">total metrics stored</div>
+    <div class="stat-sub">engine cycle records</div>
   </div>
   <div class="stat-card">
     <div class="stat-label">Last Ingestion</div>
@@ -39,18 +39,36 @@
 </div>
 {% endif %}
 
+<!-- Dataset info -->
+<div class="card" style="border-color:var(--accent);margin-bottom:1.5rem">
+  <div class="card-title">Dataset — NASA CMAPSS FD001</div>
+  <p style="font-size:0.875rem;color:var(--text);line-height:1.75">
+    The C-MAPSS (Commercial Modular Aero-Propulsion System Simulation) dataset contains run-to-failure
+    data for turbofan jet engines. Subset FD001 has 100 training engines and 100 test engines, each
+    with 21 sensor readings per cycle. 14 informative sensors are selected after removing constant-value
+    channels. The LSTM Autoencoder is trained on early cycles (cycle ≤ 125) where engines are healthy,
+    and flags late cycles (near failure) as anomalous.
+  </p>
+  <div style="margin-top:1rem;display:flex;gap:1rem;flex-wrap:wrap">
+    <span class="badge badge-ok">100 training engines</span>
+    <span class="badge badge-ok">14 sensors selected</span>
+    <span class="badge badge-ok">seq_len = 30 cycles</span>
+    <span class="badge badge-ok">threshold at p95</span>
+  </div>
+</div>
+
 <!-- Pipeline diagram -->
 <div class="card">
   <div class="card-title">Pipeline Stages</div>
   <div style="display:flex;flex-direction:column;gap:0;align-items:stretch">
     {% set stages = [
-      ("1", "Data Ingestion", "Airflow DAG scrapes Prometheus every 5 min → stores to SQLite + daily CSV", "green"),
-      ("2", "Versioning",     "DVC tracks raw CSVs and processed windows. Git tracks code and configs.",    "accent"),
-      ("3", "Preprocessing",  "MinMaxScaler normalisation → sliding windows (60×4). Drift baseline saved.", "accent"),
-      ("4", "Training",       "LSTM Autoencoder trains on normal windows. MLflow logs all params & metrics.","accent"),
-      ("5", "Registration",   "Best model registered in MLflow model registry.",                            "accent"),
-      ("6", "Serving",        "FastAPI loads registered model. Exposes /predict, /health, /metrics.",       "accent"),
-      ("7", "Monitoring",     "Prometheus scrapes /metrics every 15s. Grafana renders dashboards in NRT.",  "amber"),
+      ("1", "Data Ingestion", "Airflow DAG reads NASA CMAPSS FD001 test data in batches every 5 min → stores to SQLite nasa_metrics table", "green"),
+      ("2", "Versioning",     "DVC tracks raw .txt files and processed windows. Git tracks code and configs.",    "accent"),
+      ("3", "Preprocessing",  "14 sensors selected → MinMaxScaler → sliding windows (30×14). Drift baseline saved from normal cycles.", "accent"),
+      ("4", "Training",       "LSTM Autoencoder trained on normal engine cycles (cycle ≤ 125). MLflow logs params, loss curves, threshold.", "accent"),
+      ("5", "Registration",   "Best model registered in MLflow model registry as lstm_autoencoder.",             "accent"),
+      ("6", "Serving",        "FastAPI loads registered model. Exposes /predict (30×14 window), /health, /drift, /metrics.", "accent"),
+      ("7", "Monitoring",     "Prometheus scrapes /metrics every 15s. Grafana shows reconstruction error, anomaly counts, latency.", "amber"),
     ] %}
     {% for num, title, desc, color in stages %}
     <div style="display:flex;align-items:flex-start;gap:1rem;padding:1rem 0;border-bottom:1px solid var(--border){% if loop.last %};border-bottom:none{% endif %}">
@@ -67,11 +85,41 @@
   </div>
 </div>
 
-<!-- MLflow link -->
+<!-- DVC pipeline console -->
 <div class="card">
-  <div class="card-title">Experiment Tracking — MLflow</div>
+  <div class="card-title">DVC Pipeline DAG</div>
+  <pre style="background:#0a0d16;border-radius:8px;padding:1rem;font-size:0.8rem;color:#a3e6cb;overflow-x:auto">
++---------------------------+
+| data/raw/train_FD001.txt  |   ← NASA CMAPSS dataset (DVC tracked)
++---------------------------+
+            │
+            ▼
++---------------------------+
+| preprocess                |   preprocess.py → data/processed/
+|  - select 14 sensors      |   windows.npy, scaler.joblib,
+|  - normal cycles only     |   drift_baseline.json
+|  - sliding windows 30×14  |
++---------------------------+
+            │
+            ▼
++---------------------------+
+| train                     |   train.py → MLflow model registry
+|  - LSTM Autoencoder       |   lstm_autoencoder v{N}
+|  - 50 epochs              |
+|  - threshold at p95       |
++---------------------------+
+            │
+            ▼
++---------------------------+
+| evaluate                  |   evaluate.py → threshold.txt
++---------------------------+</pre>
+</div>
+
+<!-- MLflow + Airflow links -->
+<div class="card">
+  <div class="card-title">Experiment Tracking & Pipeline Management</div>
   <p style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem">
-    All training runs, hyperparameters, metrics, and model versions are tracked in MLflow.
+    All training runs are tracked in MLflow. Airflow manages the data ingestion pipeline.
   </p>
   <a href="http://localhost:5001" target="_blank"
      style="display:inline-block;background:var(--accent);color:#fff;padding:0.5rem 1.25rem;border-radius:8px;text-decoration:none;font-size:0.875rem;font-weight:600">
@@ -81,36 +129,15 @@
      style="display:inline-block;margin-left:0.75rem;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:0.5rem 1.25rem;border-radius:8px;text-decoration:none;font-size:0.875rem;font-weight:600">
     Open Airflow UI →
   </a>
-</div>
-
-<!-- DVC pipeline console -->
-<div class="card">
-  <div class="card-title">DVC Pipeline DAG</div>
-  <pre style="background:#0a0d16;border-radius:8px;padding:1rem;font-size:0.8rem;color:#a3e6cb;overflow-x:auto">
-+-------------------+
-| data/raw/*.csv    |   ← Airflow ingestion (DVC tracked)
-+-------------------+
-          │
-          ▼
-+-------------------+
-| preprocess        |   preprocess.py → data/processed/
-+-------------------+
-          │
-          ▼
-+-------------------+
-| train             |   train.py → MLflow model registry
-+-------------------+
-          │
-          ▼
-+-------------------+
-| evaluate          |   evaluate.py → threshold.txt
-+-------------------+</pre>
+  <a href="http://localhost:3000" target="_blank"
+     style="display:inline-block;margin-left:0.75rem;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:0.5rem 1.25rem;border-radius:8px;text-decoration:none;font-size:0.875rem;font-weight:600">
+    Open Grafana →
+  </a>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-// Auto-refresh pipeline status every 60 seconds
 async function refreshStatus() {
   const r = await fetch('/api/pipeline-status').catch(() => null);
   if (!r || !r.ok) return;

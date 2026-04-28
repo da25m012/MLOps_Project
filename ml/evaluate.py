@@ -1,8 +1,8 @@
 """
-Evaluation utilities.
-- Computes reconstruction errors on a dataset
-- Applies threshold to label anomalies as Low or High severity
-- Drift detection: compares live feature stats vs baseline
+Evaluation utilities for NASA CMAPSS anomaly detection.
+- Scores windows using reconstruction error
+- Classifies anomalies as Low or High severity
+- Drift detection against training baseline
 """
 
 import json
@@ -21,7 +21,6 @@ PROCESSED_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "processed
 BASELINE_PATH = os.path.join(PROCESSED_DIR, "drift_baseline.json")
 THRESHOLD_PATH = os.path.join(PROCESSED_DIR, "threshold.txt")
 
-# High severity if error > HIGH_MULTIPLIER * threshold
 HIGH_MULTIPLIER = 2.0
 
 
@@ -47,9 +46,9 @@ def score_window(model: LSTMAutoencoder, window: np.ndarray, device: torch.devic
 def classify_anomaly(error: float, threshold: float) -> dict:
     """
     Returns anomaly classification dict.
-    - normal:   error <= threshold
-    - low:      threshold < error <= HIGH_MULTIPLIER * threshold
-    - high:     error > HIGH_MULTIPLIER * threshold
+    - normal: error <= threshold
+    - low:    threshold < error <= HIGH_MULTIPLIER * threshold
+    - high:   error > HIGH_MULTIPLIER * threshold
     """
     high_threshold = threshold * HIGH_MULTIPLIER
     if error <= threshold:
@@ -64,7 +63,6 @@ def detect_drift(live_stats: dict) -> dict:
     """
     Compares live feature statistics against the saved baseline.
     live_stats: {feature: {"mean": float, "std": float}}
-    Returns per-feature drift flags.
     """
     if not os.path.exists(BASELINE_PATH):
         logger.warning("No drift baseline found. Skipping drift detection.")
@@ -78,7 +76,6 @@ def detect_drift(live_stats: dict) -> dict:
         if feature not in baseline:
             continue
         base = baseline[feature]
-        # Flag drift if live mean deviates more than 2 std from baseline
         z_score = abs(stats["mean"] - base["mean"]) / (base["std"] + 1e-9)
         drift_report[feature] = {
             "drift_detected": bool(z_score > 2.0),
@@ -90,10 +87,7 @@ def detect_drift(live_stats: dict) -> dict:
 
 
 def evaluate_dataset(model: LSTMAutoencoder, windows: np.ndarray, device: torch.device) -> dict:
-    """
-    Runs evaluation over a full windows array.
-    Returns summary stats useful for reporting.
-    """
+    """Runs evaluation over a full windows array."""
     threshold = load_threshold()
     errors = []
     model.eval()
@@ -102,7 +96,7 @@ def evaluate_dataset(model: LSTMAutoencoder, windows: np.ndarray, device: torch.
         tensors = torch.tensor(windows, dtype=torch.float32).to(device)
         batch_size = 64
         for i in range(0, len(tensors), batch_size):
-            batch = tensors[i : i + batch_size]
+            batch = tensors[i: i + batch_size]
             errs = model.reconstruction_error(batch)
             errors.extend(errs.cpu().numpy())
 

@@ -1,59 +1,66 @@
 """
-API I/O schemas.
-All endpoint request and response bodies are defined here —
-keeping them separate from business logic for clean LLD documentation.
+API I/O schemas for NASA CMAPSS anomaly detection.
+14 sensor features per time step, 30 time steps per window.
 """
 
 from typing import List, Optional
 from pydantic import BaseModel, Field
 
+FEATURES = [
+    "sensor2", "sensor3", "sensor4", "sensor7", "sensor8", "sensor9",
+    "sensor11", "sensor12", "sensor13", "sensor14", "sensor15",
+    "sensor17", "sensor20", "sensor21"
+]
+SEQ_LEN = 30
+NUM_FEATURES = len(FEATURES)  # 14
 
-# ── Request schemas ───────────────────────────────────────────────────────────
 
 class MetricWindow(BaseModel):
     """
-    A sliding window of multivariate system metrics.
-    Shape: seq_len rows × 4 features.
-    Feature order: [cpu_usage, memory_usage, request_rate, error_rate]
+    A sliding window of NASA CMAPSS sensor readings.
+    Shape: seq_len=30 rows x 14 features.
+    Feature order: sensor2,3,4,7,8,9,11,12,13,14,15,17,20,21
     """
     window: List[List[float]] = Field(
         ...,
-        description="2D list: (seq_len, 4). Values are raw (unscaled).",
-        example=[[0.45, 0.60, 120.0, 0.01]] * 60,
+        description=f"2D list: ({SEQ_LEN}, {NUM_FEATURES}). Raw unscaled sensor values.",
     )
     timestamp: Optional[str] = Field(
         None,
-        description="ISO 8601 timestamp of the last data point in the window.",
-        example="2024-01-15T10:30:00Z",
+        description="ISO 8601 timestamp of the last data point.",
+    )
+    engine_id: Optional[int] = Field(
+        None,
+        description="Engine ID from the CMAPSS dataset.",
+    )
+    cycle: Optional[int] = Field(
+        None,
+        description="Current engine cycle number.",
     )
 
 
-# ── Response schemas ──────────────────────────────────────────────────────────
-
 class AnomalyResult(BaseModel):
-    """Result of a single anomaly detection inference."""
-    is_anomaly: bool = Field(..., description="True if the window is anomalous.")
-    severity: str = Field(..., description="'normal', 'low', or 'high'.")
-    score: float = Field(..., description="Reconstruction error (MSE). Higher = more anomalous.")
-    threshold: float = Field(..., description="Threshold used for classification.")
-    timestamp: Optional[str] = Field(None, description="Echoed from request.")
+    is_anomaly: bool
+    severity: str
+    score: float
+    threshold: float
+    timestamp: Optional[str] = None
+    engine_id: Optional[int] = None
+    cycle: Optional[int] = None
 
 
 class HealthResponse(BaseModel):
-    """Response for /health endpoint."""
-    status: str = Field(..., example="ok")
+    status: str
     model_loaded: bool
     mlflow_run_id: Optional[str] = None
 
 
 class ReadyResponse(BaseModel):
-    """Response for /ready endpoint (orchestration health check)."""
     ready: bool
     detail: str
 
 
 class DriftReport(BaseModel):
-    """Per-feature drift detection result."""
     feature: str
     drift_detected: bool
     z_score: float
@@ -62,13 +69,11 @@ class DriftReport(BaseModel):
 
 
 class DriftResponse(BaseModel):
-    """Response for /drift endpoint."""
     drift_reports: List[DriftReport]
     any_drift: bool
 
 
 class PipelineStatus(BaseModel):
-    """Response for /pipeline/status — used by Flask pipeline visualization."""
     last_ingestion: Optional[str] = None
     total_rows_ingested: int = 0
     model_version: Optional[str] = None
