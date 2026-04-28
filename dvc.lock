@@ -1,7 +1,7 @@
 schema: '2.0'
 stages:
   preprocess:
-    cmd: python ml/preprocess.py
+    cmd: python3 ml/preprocess.py
     deps:
     - path: data/raw/train_FD001.txt
       hash: md5
@@ -16,30 +16,25 @@ stages:
       hash: md5
       md5: ebf500d8d1936fe53b2ebd8d57ad1aee
       size: 2178
-      isexec: true
     - path: data/processed/scaler.joblib
       hash: md5
       md5: 1a18172830c6386096d8285f0c784f84
       size: 1623
-      isexec: true
     - path: data/processed/windows.npy
       hash: md5
       md5: 3867fd23cc6cd690dbfc8512f9cd5773
       size: 16128128
-      isexec: true
   train:
-    cmd: python ml/train.py
+    cmd: python3 ml/train.py
     deps:
     - path: data/processed/scaler.joblib
       hash: md5
       md5: 1a18172830c6386096d8285f0c784f84
       size: 1623
-      isexec: true
     - path: data/processed/windows.npy
       hash: md5
       md5: 3867fd23cc6cd690dbfc8512f9cd5773
       size: 16128128
-      isexec: true
     - path: ml/evaluate.py
       hash: md5
       md5: 2956526f21e6bb43628e99f07654e836
@@ -50,27 +45,24 @@ stages:
       size: 2328
     - path: ml/train.py
       hash: md5
-      md5: 282605651de1639dbd75115334da6e22
-      size: 6181
+      md5: 6020d3c7597e71b3023783e41fbafbaa
+      size: 6286
     outs:
     - path: data/processed/threshold.txt
       hash: md5
-      md5: e29509a3583781caed0973eb74b13e03
+      md5: 580cbf9a0461f7aa1278b14240e4800e
       size: 20
-      isexec: true
   evaluate:
-    cmd: python ml/evaluate.py
+    cmd: python3 ml/evaluate.py
     deps:
     - path: data/processed/threshold.txt
       hash: md5
-      md5: e29509a3583781caed0973eb74b13e03
+      md5: 580cbf9a0461f7aa1278b14240e4800e
       size: 20
-      isexec: true
     - path: data/processed/windows.npy
       hash: md5
       md5: 3867fd23cc6cd690dbfc8512f9cd5773
       size: 16128128
-      isexec: true
     - path: ml/evaluate.py
       hash: md5
       md5: 2956526f21e6bb43628e99f07654e836

@@ -1,3 +1,8 @@
 .env
-*__pycache__*/
+__pycache__/
 *.pyc
+data/processed/
+mlruns/
+data/metrics.db
+mlflow_local.db
+*.db
