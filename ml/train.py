@@ -44,7 +44,8 @@ def train(hparams=None):
         HPARAMS.update(hparams)
 
     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-    mlflow.set_experiment(EXPERIMENT_NAME)
+    if not os.environ.get("MLFLOW_RUN_ID"):
+        mlflow.set_experiment(EXPERIMENT_NAME)
 
     logger.info("Running preprocessing on NASA CMAPSS FD001...")
     windows = preprocess(seq_len=HPARAMS["seq_len"])
@@ -73,7 +74,8 @@ def train(hparams=None):
     criterion = nn.MSELoss()
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5, factor=0.5)
 
-    with mlflow.start_run() as run:
+    run_id = os.environ.get("MLFLOW_RUN_ID")
+    with mlflow.start_run(run_id=run_id) as run:
         mlflow.log_params(HPARAMS)
         logger.info(f"MLflow run ID: {run.info.run_id}")
 

@@ -149,6 +149,8 @@ async def predict(payload: MetricWindow):
         score=result["score"],
         threshold=result["threshold"],
         timestamp=payload.timestamp,
+        engine_id=payload.engine_id,
+        cycle=payload.cycle
     )
 
 

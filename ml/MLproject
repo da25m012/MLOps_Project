@@ -1,6 +1,6 @@
 name: nasa-cmapss-anomaly-detection
 
-conda_env: conda.yaml
+conda_env: null
 
 entry_points:
   main:
@@ -12,10 +12,4 @@ entry_points:
       epochs:      {type: int, default: 50}
       batch_size:  {type: int, default: 32}
     command: >
-      python train.py
-        --hidden_size {hidden_size}
-        --num_layers  {num_layers}
-        --seq_len     {seq_len}
-        --lr          {lr}
-        --epochs      {epochs}
-        --batch_size  {batch_size}
+      python3 train.py --hidden_size {hidden_size} --num_layers {num_layers} --seq_len {seq_len} --lr {lr} --epochs {epochs} --batch_size {batch_size}
