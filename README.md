@@ -55,6 +55,8 @@ git init
 dvc init
 ```
 
+Go to Kaggle NASA CMapss Jet Engine dataset and download train_FD001.txt and test_FD001.txt files and place them in data/raw/ folder.
+
 ### 2. Start core services
 
 ```bash
