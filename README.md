@@ -93,7 +93,7 @@ Enable the `ingest_nasa_cmapss` DAG — it reads `test_FD001.txt` in batches eve
 
 ```bash
 cd ml
-CUDA_VISIBLE_DEVICES="" MLFLOW_TRACKING_URI=http://localhost:5001 python3 train.py
+MLFLOW_TRACKING_URI=http://localhost:5001 python3 train.py
 ```
 
 ### 6. Restart backend to load trained model
